@@ -72,7 +72,7 @@ python .agents/skills/autoresearch/scripts/lab.py --config <lab.json> status
 - **It does not sandbox your evaluator.** The host harness must enforce isolation and network policy; the profile only states that it does.
 - **"Accepted" is not "goal achieved."** Accepted means a trial beat its parent under the lab's rules. Goal success needs declared thresholds and confirmation repeats. See [measurement semantics](.agents/skills/autoresearch/references/measurement.md).
 - **The dashboard does not start by itself.** Run `dashboard start` to watch progress. It is read-only, binds to `127.0.0.1`, and opens a browser only with `--open-browser`.
-- **The codebase is not small.** The runtime is about 22k lines of Python, using only the standard library.
+- **The codebase is not tiny.** The runtime is about 14k lines of Python, using only the standard library.
 
 ## Compatibility
 
@@ -83,9 +83,9 @@ Works through a Markdown skill and ordinary command-line tools, with no agent-sp
 - [Skill instructions](.agents/skills/autoresearch/SKILL.md) and [CLI contracts](.agents/skills/autoresearch/references/cli.md)
 - [Evaluator contract](.agents/skills/autoresearch/references/evaluator-contract.md) and [project safety](.agents/skills/autoresearch/references/safety.md)
 - [Installation and updates](.agents/skills/autoresearch/references/installation.md)
-- Upgrade notes: [0.8.0](docs/v08-migration.md), [0.7.0](docs/v07-migration.md), [0.6.0](docs/v06-migration.md)
+- Upgrade notes: [0.9.0](docs/v09-migration.md), [0.8.0](docs/v08-migration.md), [0.7.0](docs/v07-migration.md), [0.6.0](docs/v06-migration.md)
 
-The current version is 0.8.0. To run the offline test suite:
+The current version is 0.9.0. To run the offline test suite:
 
 ```text
 python -m unittest discover -s tests
