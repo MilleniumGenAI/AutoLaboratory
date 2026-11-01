@@ -138,6 +138,12 @@ def _check_candidate_matches_snapshot(config: LabConfig, state: dict[str, Any]) 
         raise LabError(f"Candidate changed before the first measurement: {', '.join(changed[:5])}")
 
 
+def validate_baseline_request(config: LabConfig) -> None:
+    """Refuse a duplicate before it becomes a durable operation that would block the lab."""
+    if load_state(config)["baseline_id"] is not None:
+        raise LabError("Baseline already exists")
+
+
 def run_baseline(config: LabConfig) -> dict[str, Any]:
     from .runtimeops import require_durable_operation_context
     require_durable_operation_context(config, "baseline")

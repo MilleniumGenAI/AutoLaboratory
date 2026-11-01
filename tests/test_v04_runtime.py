@@ -556,6 +556,9 @@ class SQLiteRuntimeIntegrationTest(unittest.TestCase):
     def test_sqlite_recorded_baseline_is_not_replaced_and_anchors_trials(self):
         _prepared, config = self._prepare()
         self.assertEqual(run_baseline(config)["status"], "accepted")
+        # The refusal comes before the operation queue, so the lab stays usable.
+        with self.assertRaisesRegex(LabError, "Baseline already exists"):
+            run_baseline(config)
 
         (config.state_dir / "candidate" / "score.txt").write_text("2", encoding="utf-8")
         trial = run_trial(config, {
@@ -565,9 +568,6 @@ class SQLiteRuntimeIntegrationTest(unittest.TestCase):
         })
         self.assertEqual(trial["status"], "accepted")
         self.assertEqual(trial["parent"], "baseline")
-        # A refused duplicate leaves its worker operation for recovery, so it runs after the last trial.
-        with self.assertRaisesRegex(LabError, "Baseline already exists"):
-            run_baseline(config)
 
 
 if __name__ == "__main__":

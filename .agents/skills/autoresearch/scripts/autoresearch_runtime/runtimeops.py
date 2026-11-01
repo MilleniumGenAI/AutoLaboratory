@@ -80,6 +80,9 @@ def _bind_operation_context(config: LabConfig, kind: str, payload: dict[str, Any
     if kind == "trial":
         from .trial import validate_trial_request
         params["hypothesis"] = validate_trial_request(config, params.get("hypothesis"))
+    if kind == "baseline":
+        from .baseline import validate_baseline_request
+        validate_baseline_request(config)
     supplied = params.get("operation_context")
     if supplied is not None and supplied != context:
         raise LabError("Operation context does not match the current lab configuration", code="E_PROVIDER_CONFIG")

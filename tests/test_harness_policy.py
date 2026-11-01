@@ -258,6 +258,7 @@ class HarnessPolicyTest(unittest.TestCase):
         policy = {"decision": "allow", "confirmed": True, "profile_sha256": "c" * 64}
         payload = {"command": "baseline", "params": {"confirmed": True}}
         with patch("autoresearch_runtime.runtimeops.safe_operation_context", return_value={"schema": 1}), \
+             patch("autoresearch_runtime.baseline.validate_baseline_request"), \
              patch("autoresearch_runtime.runtimeops.authorize_operation", return_value=policy,
                    create=True) as authorize:
             bound = _bind_operation_context(self.config, "baseline", payload)
@@ -280,6 +281,7 @@ class HarnessPolicyTest(unittest.TestCase):
         with patch("autoresearch_runtime.runtimeops._config_for", return_value=self.config), \
              patch("autoresearch_runtime.runtimeops.SQLiteStore", return_value=store), \
              patch("autoresearch_runtime.runtimeops.lab_lock", return_value=nullcontext()), \
+             patch("autoresearch_runtime.baseline.validate_baseline_request"), \
              patch("autoresearch_runtime.runtimeops.safe_operation_context", return_value={"schema": 1}):
             with self.assertRaises(LabError) as denied:
                 reserve_operation(
