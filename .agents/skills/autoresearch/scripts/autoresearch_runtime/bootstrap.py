@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 import shutil
 import sys
 import tempfile
@@ -18,7 +17,6 @@ from .config import validate_config_file
 from .lab import LabError, init_lab, load_config, load_state
 from .paths import brief_path, home_root_id, project_directory, project_id, resolve_home
 from .pins import _has_comparable_history, validate as pins_validate
-from .runtime_env import hidden_process_kwargs
 
 
 def _path(base: Path, value: str) -> Path:
@@ -520,162 +518,6 @@ def _resolve_program(args: argparse.Namespace, spec_path: Path | None = None) ->
     raise ValueError("Provide --program PATH or --brief-text TEXT ('-' reads stdin)")
 
 
-def _auto_generate_spec(
-    project: Path,
-    eval_cmd: str,
-    metric_arg: str,
-    program: Path | None,
-    home: Path,
-    repeats: int = 1,
-) -> tuple[Path, Path]:
-    """Execute one evaluation in a temporary run_dir, extract metric, and generate known_case.json and spec.json."""
-    import shlex
-    import subprocess
-
-    if ":" in metric_arg:
-        metric_name, direction = metric_arg.split(":", 1)
-    else:
-        metric_name, direction = metric_arg, "max"
-    metric_name = metric_name.strip()
-    direction = direction.strip().lower()
-    if direction not in ("min", "max"):
-        raise ValueError(f"Invalid metric direction '{direction}', must be 'min' or 'max'")
-
-    eval_parts = [p.strip('\'"') for p in shlex.split(eval_cmd, posix=False) if p.strip()]
-    if not eval_parts:
-        raise ValueError("Evaluator command cannot be empty")
-
-    first_token_lower = eval_parts[0].lower()
-    uses_python = (
-        first_token_lower in ("python", "python.exe", "{python}")
-        or first_token_lower.endswith(("python.exe", "python"))
-        or first_token_lower.startswith("python")
-    )
-    script_index = 1 if uses_python and len(eval_parts) > 1 else 0
-    script_token = eval_parts[script_index]
-
-    script_file = None
-    for loc in [
-        Path(script_token),
-        project / script_token,
-        program.parent / script_token if program else None,
-    ]:
-        if loc is not None and loc.is_file():
-            script_file = loc.resolve()
-            break
-    if script_file is None:
-        raise ValueError(f"Evaluator script not found: {script_token}")
-
-    if not uses_python and script_file.suffix == ".py":
-        uses_python = True
-        eval_parts.insert(0, "{python}")
-        script_index = 1
-
-    spec_eval = list(eval_parts)
-    if uses_python:
-        spec_eval[0] = "{python}"
-    spec_eval[script_index] = str(script_file)
-    if "{candidate}" not in spec_eval and "{run_dir}" not in spec_eval:
-        spec_eval.extend(["{candidate}", "{run_dir}"])
-
-    with tempfile.TemporaryDirectory(prefix="autoresearch-auto-run-") as temp_run_str:
-        temp_run = Path(temp_run_str)
-        cmd = [
-            sys.executable if arg == "{python}" else
-            (str(project) if arg == "{candidate}" else
-            (str(temp_run) if arg == "{run_dir}" else arg))
-            for arg in spec_eval
-        ]
-        env = os.environ.copy()
-        env["PYTHONUTF8"] = "1"
-        env["PYTHONIOENCODING"] = "utf-8"
-        proc = subprocess.run(
-            cmd,
-            cwd=str(project),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=120,
-            check=False,
-            env=env,
-            **hidden_process_kwargs(),
-        )
-        if proc.returncode != 0:
-            raise ValueError(
-                f"Auto evaluation failed with exit code {proc.returncode}:\n"
-                f"{proc.stdout}\n{proc.stderr}"
-            )
-        result_path = temp_run / "result.json"
-        if not result_path.is_file():
-            raise ValueError(
-                f"Evaluator did not write result.json in {temp_run}:\n"
-                f"{proc.stdout}\n{proc.stderr}"
-            )
-        try:
-            result_data = json.loads(result_path.read_text(encoding="utf-8"))
-        except Exception as error:
-            raise ValueError(f"Invalid result.json written by evaluator: {error}") from error
-
-        metrics = result_data.get("metrics")
-        if not isinstance(metrics, dict) or metric_name not in metrics:
-            raise ValueError(
-                f"Metric '{metric_name}' not found in result.json metrics: {metrics}"
-            )
-        metric_val = float(metrics[metric_name])
-
-    specs_dir = home / "specs" / project_id(project)
-    specs_dir.mkdir(parents=True, exist_ok=True)
-    known_case_path = specs_dir / "known_case.json"
-    spec_path = specs_dir / "spec.json"
-
-    # If evaluator script is inside project, isolate it to specs_dir so it won't conflict with candidate snapshot
-    rel_exclude = []
-    if script_file.is_relative_to(project):
-        rel_exclude.append(script_file.relative_to(project).as_posix())
-        isolated_script = specs_dir / script_file.name
-        shutil.copy2(script_file, isolated_script)
-        script_file = isolated_script
-        spec_eval[script_index] = str(isolated_script)
-
-    script_sha = _hash(script_file)
-    known_case_data = {
-        "schema": 1,
-        "id": f"auto-{project_id(project)}-baseline",
-        "reproducible": True,
-        "evaluator_sha256": script_sha,
-        "input_hashes": {},
-        "expected_metrics": {metric_name: metric_val},
-        "observed_metrics": {metric_name: metric_val},
-        "tolerance": 1e-6,
-    }
-    known_case_path.write_text(json.dumps(known_case_data, indent=2, ensure_ascii=False), encoding="utf-8")
-    known_case_sha = _hash(known_case_path)
-
-    spec_data = {
-        "project": str(project),
-        "evaluator": spec_eval,
-        "metrics": {
-            "primary": metric_name,
-            "direction": direction,
-            "guards": [],
-        },
-        "repeats": repeats,
-        "timeout_seconds": 60,
-        "baseline_validation": {
-            "mode": "fresh",
-            "known_case": {
-                "path": str(known_case_path),
-                "sha256": known_case_sha,
-            },
-        },
-    }
-    if rel_exclude:
-        spec_data["exclude_globs"] = rel_exclude
-    spec_path.write_text(json.dumps(spec_data, indent=2, ensure_ascii=False), encoding="utf-8")
-    return spec_path, known_case_path
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Prepare an AutoResearch lab from program.md")
     parser.add_argument("--program", type=Path, default=None)
@@ -683,63 +525,19 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--spec", type=Path)
     parser.add_argument("--confirmed", action="store_true",
                         help="Confirm creation of a new SQLite lab from the supplied brief and spec")
-    parser.add_argument("--auto", action="store_true",
-                        help="Deprecated: prepare with --spec, then run a separate confirmed baseline")
-    parser.add_argument("--eval", dest="eval_cmd", type=str, default=None, help="Evaluator command for auto-spec")
-    parser.add_argument("--metric", dest="metric", type=str, default=None, help="Metric in name:direction format (e.g. accuracy:max)")
-    parser.add_argument("--repeats", type=int, default=1, help="Repeats for evaluation")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--project", type=Path)
     args = parser.parse_args(argv)
-    if args.auto:
-        return fail(
-            "prepare",
-            LabError(
-                "--auto no longer runs an evaluator during preparation",
-                code="E_AUTO_MIGRATION_REQUIRED",
-                hint=(
-                    "Prepare a non-evaluating lab with --program <program.md> --spec <spec.json>, "
-                    "then start a separate baseline with python scripts/lab.py baseline --confirmed "
-                    "--config <lab.json> after configuring an approved harness profile."
-                ),
-            ),
-        )
     if args.resume and args.project is None and args.brief_text is None:
         parser.error("--resume requires --project or --brief-text")
-    if not args.resume and args.spec is None and not args.auto:
-        parser.error("preparation requires --spec (or --auto)")
-    if args.auto and args.spec is None:
-        if not args.eval_cmd or not args.metric:
-            parser.error("--auto requires --eval <cmd> and --metric <name>:<dir> when --spec is omitted")
+    if not args.resume and args.spec is None:
+        parser.error("preparation requires --spec")
     try:
         project = args.project.resolve() if args.project is not None else None
-        if args.auto and args.spec is None:
-            if project is None:
-                project = Path.cwd().resolve()
-            if args.program is not None:
-                program = args.program.resolve()
-            elif args.brief_text is not None:
-                program = _write_brief(project, args.brief_text)
-            elif (project / "program.md").is_file():
-                program = (project / "program.md").resolve()
-            else:
-                m_name = args.metric.split(":", 1)[0]
-                program = _write_brief(project, f"Goal: optimize {m_name}\nMetric: {args.metric}\n")
-            home = _lab_root(program, project)
-            spec_path, _ = _auto_generate_spec(
-                project=project,
-                eval_cmd=args.eval_cmd,
-                metric_arg=args.metric,
-                program=program,
-                home=home,
-                repeats=args.repeats or 1,
-            )
-            args.spec = spec_path
-        else:
-            program = _resolve_program(args, args.spec.resolve() if args.spec is not None else None)
-            if project is None and args.spec is not None:
-                spec = json.loads(args.spec.resolve().read_text(encoding="utf-8"))
-                project = _path(args.spec.resolve().parent, spec["project"]).resolve()
+        program = _resolve_program(args, args.spec.resolve() if args.spec is not None else None)
+        if project is None and args.spec is not None:
+            spec = json.loads(args.spec.resolve().read_text(encoding="utf-8"))
+            project = _path(args.spec.resolve().parent, spec["project"]).resolve()
         if args.resume and project is None:
             raise ValueError("--resume requires --project or a --spec with project")
         output = (resume_lab(program, project) if args.resume

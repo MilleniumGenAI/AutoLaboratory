@@ -386,18 +386,14 @@ class AgentGuidanceTest(unittest.TestCase):
         old_home = os.environ.get("AUTORESEARCH_HOME")
         os.environ["AUTORESEARCH_HOME"] = str(home_dir)
         try:
-            stdout, stderr = io.StringIO(), io.StringIO()
-            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
-                rc = bootstrap_main([
+            with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as refused:
+                bootstrap_main([
                     "--auto",
                     "--project", str(mini_proj),
                     "--eval", f"python {eval_script}",
                     "--metric", "accuracy:max",
                 ])
-            self.assertNotEqual(rc, 0)
-            response = json.loads(stderr.getvalue())
-            self.assertEqual(response["error"]["code"], "E_AUTO_MIGRATION_REQUIRED")
-            self.assertIn("prepare", response["error"]["hint"].lower())
+            self.assertEqual(refused.exception.code, 2)
             self.assertFalse(evaluator_marker.exists())
             self.assertEqual(support.tree_digest(mini_proj), project_before)
             self.assertEqual(support.tree_digest(home_dir), home_before)

@@ -26,9 +26,7 @@ The project-local skill works with a normal shell and filesystem. Do not assume 
 
 Prepare a lab only after the user approves its passport. For a new SQLite lab, pass `--confirmed` to `scripts/prepare.py`; this does not run the evaluator. Read the `contract_fingerprint` from `guide --json`, configure `AUTORESEARCH_HARNESS_PROFILE` to a host-managed profile outside the project and lab state, then pass global `--confirmed` for each evaluator operation. The profile schema, offline/network modes, and harness responsibilities are documented in [harness-profile.md](harness-profile.md). A profile is a host attestation, not proof of sandbox or network enforcement. Read-only commands and `preflight` do not require it.
 
-`prepare --auto` is deprecated. It returns `E_AUTO_MIGRATION_REQUIRED` before preparing a lab or starting an evaluator. Use `preflight`, then explicit `prepare.py --confirmed`, review the guide fingerprint, configure the host profile, and start a separate confirmed baseline.
-
-## Legacy file-based labs and SQLite export
+## File-based labs and export
 
 A lab stored as plain files (a real `lab.json` with no SQLite lab behind it) is no longer supported. Any command that loads one fails with `E_LEGACY_LAB` and leaves the files unchanged. Git tag `v0.8.0` can open and export such labs. Export a SQLite lab as JSON; the export needs no harness profile or evaluator confirmation:
 
@@ -45,7 +43,7 @@ python SKILL_DIR/scripts/lab.py --config <lab.json> guide --json [--run <run_id>
 
 `preflight` validates the supplied contract, optional brief/budget provenance, and optional saved result without running the evaluator or making network requests. A spec that declares `budget.max_requests` or `budget.max_cost_usd` (or quotes them in `budget_sources`) is rejected by `preflight` and `prepare` with `E_CONTRACT_SPEND_LIMIT`: AutoResearch does not limit spending, so set the limit on the API key. A valid contract or result is not proof that the evaluator reached the intended provider: dry-run output remains `integration_status: "unverified"` and `new_requests: 0`. `doctor` checks the local environment and skill integrity, not provider integration. Test a provider adapter with a local substituted transport and assert endpoint, model, parsed result, attempts, and usage before relying on it. See [the evaluator contract](evaluator-contract.md).
 
-`guide --json` is the canonical bounded summary for the next decision; `--run <run_id>` selects one run's evidence. For SQLite-backed labs, the global lab selector precedes the command: `python SKILL_DIR/scripts/lab.py --lab <UUID> guide --json`. Use its run IDs and the authenticated dashboard API's run/evidence views; SQLite manifests, results, checkpoints, and attempts are database projections, not virtual files to open. For legacy labs, read referenced files only when the card identifies a gap.
+`guide --json` is the canonical bounded summary for the next decision; `--run <run_id>` selects one run's evidence. For SQLite-backed labs, the global lab selector precedes the command: `python SKILL_DIR/scripts/lab.py --lab <UUID> guide --json`. Use its run IDs and the authenticated dashboard API's run/evidence views; SQLite manifests, results, checkpoints, and attempts are database projections, not virtual files to open.
 
 ## Trials and resume
 
@@ -82,6 +80,16 @@ Unknown `--lab` selectors return `E_LAB_NOT_FOUND`, malformed selected configs r
 
 ## Other commands
 
-Use `prepare` to create a new SQLite-backed lab. `recover` remains available for SQLite labs. The dashboard does not start by itself. Run `dashboard start` to watch progress; it reuses the service already running for the same `AUTORESEARCH_HOME` or starts one, prints its URL, and opens a browser only with `--open-browser`. The dashboard is read-only. `dashboard` supports `start`, `status`, and `stop`. On Windows the service runs without a console window. Its stop token stays in protected home metadata and is never passed on the command line. See [home layout](home.md) for service files.
+```text
+python SKILL_DIR/scripts/lab.py --config <lab.json> --confirmed recover
+python SKILL_DIR/scripts/lab.py --config <lab.json> cancel <run_id>
+python SKILL_DIR/scripts/lab.py --config <lab.json> promote --mode patch
+python SKILL_DIR/scripts/lab.py --config <lab.json> vault restore --path <path>
+python SKILL_DIR/scripts/lab.py dashboard start --open-browser
+python SKILL_DIR/scripts/lab.py dashboard status
+python SKILL_DIR/scripts/lab.py dashboard stop
+```
+
+The dashboard does not start by itself. Run `dashboard start` to watch progress; it reuses the service already running for the same `AUTORESEARCH_HOME` or starts one, prints its URL, and opens a browser only with `--open-browser`. The dashboard is read-only. `dashboard` supports `start`, `status`, and `stop`. On Windows the service runs without a console window. Its stop token stays in protected home metadata and is never passed on the command line. See [home layout](home.md) for service files.
 
 SQLite checkpoint and attempt records stay in the database, are consumed by native `resume <run_id>`, and are included by explicit `storage export --lab REF --output <file>`.

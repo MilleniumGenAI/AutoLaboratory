@@ -83,7 +83,7 @@ class TestV3Resilience(unittest.TestCase):
     def test_auto_prepare_fails_closed_without_side_effects(self):
         proj, eval_file, evaluator_called = self._create_project()
 
-        # --auto no longer runs an evaluator during preparation.
+        # --auto was removed; preparation never runs an evaluator.
         eval_cmd = f'"{PYTHON}" "{eval_file}" {{candidate}} {{run_dir}}'
         rc, out, err = self.run_cmd(self.cli + [
             "prepare",
@@ -94,9 +94,6 @@ class TestV3Resilience(unittest.TestCase):
             "--brief-text", "Goal: optimize score\n",
         ])
         self.assertEqual(rc, 2, f"Auto-prepare unexpectedly succeeded: {out}\nSTDERR: {err}")
-        failure = json.loads(err)
-        self.assertFalse(failure["ok"])
-        self.assertEqual(failure["error"]["code"], "E_AUTO_MIGRATION_REQUIRED")
         self.assertFalse(evaluator_called.exists())
         self.assertFalse((self.root / ".labs" / "autoresearch.sqlite3").exists())
         self.assertFalse((self.root / ".labs" / "projects").exists())
