@@ -60,7 +60,7 @@ python SKILL_DIR/scripts/lab.py --config <lab.json> --confirmed resume <run_id>
 
 `trial` takes one of the subcommands `start`, `wait` or `status`.
 
-Native resume accepts only an interrupted, crashed, or timed-out run and validates the same frozen contract, candidate snapshot, pins, epoch, and parent before continuing that run ID. Valid saved results can be finalized without evaluator capability flags. If missing repeats require evaluator execution, verified `case_resume` and `offline_verified` capabilities with the pinned fixture are required; pending evaluations may still make provider calls. Before those evaluator calls, corrupt/torn journals or unresolved HTTP attempts block the resume path. Reconcile the logs before retrying; never make a second run look like continuation.
+Native resume accepts only an interrupted, crashed, or timed-out run and validates the same frozen contract, candidate snapshot, pins, contract, and parent before continuing that run ID. Valid saved results can be finalized without evaluator capability flags. If missing repeats require evaluator execution, verified `case_resume` and `offline_verified` capabilities with the pinned fixture are required; pending evaluations may still make provider calls. Before those evaluator calls, corrupt/torn journals or unresolved HTTP attempts block the resume path. Reconcile the logs before retrying; never make a second run look like continuation.
 
 Check a running trial with:
 
@@ -72,7 +72,7 @@ python SKILL_DIR/scripts/lab.py --config <lab.json> trial status
 Evaluation and signal diagnostics are automatically attached to the cockpit envelope:
 - `impact.error_tail` and `run_detail.error_tail`: last 10 lines (up to 600 chars) of evaluator stderr/stdout on crash, eliminating manual `run.log` inspection.
 - `case_samples`: in `case_regression` signals, surfaces up to 3 compact failing cases (`id`, `status`, `error`, `metrics`), eliminating `cases.jsonl` reads.
-- `dead_ends`: in the cockpit summary, lists up to 8 rejected/crashed hypotheses from the current epoch (backed by a 100-run history memory), guarding against cycling through failed ideas across context compaction.
+- `dead_ends`: in the cockpit summary, lists up to 8 rejected/crashed hypotheses for the current contract (backed by a 100-run history memory), guarding against cycling through failed ideas across context compaction.
 
 Query the durable job through `trial status`/`trial wait` and inspect the stored guide/run projection instead of searching for a `manifest.json` path.
 

@@ -19,7 +19,7 @@ python SKILL_DIR/scripts/prepare.py --project <project> --program <brief.md> --s
 python SKILL_DIR/scripts/lab.py --config <config-path-from-prepare> guide --json
 ```
 
-Copy `data.contract_fingerprint` from the guide's JSON envelope exactly. It changes when the active measurement contract or epoch changes. Re-read the guide and update the host profile after such a change.
+Copy `data.contract_fingerprint` from the guide's JSON envelope exactly. It changes when the active measurement contract changes. Re-read the guide and update the host profile after such a change.
 
 ## Profile format
 
@@ -54,7 +54,7 @@ Profiles written for earlier versions may still contain a `spend` block. It is a
 
 ## Run an approved operation
 
-Set `AUTORESEARCH_HARNESS_PROFILE` to the absolute path of the host-managed profile. The durable `baseline`, `trial`, `resume`, `recover`, and `epoch` operations all require the profile and a fresh `--confirmed` for that operation. Confirm an evaluator run, for example:
+Set `AUTORESEARCH_HARNESS_PROFILE` to the absolute path of the host-managed profile. The durable `baseline`, `trial`, `resume`, and `recover` operations all require the profile and a fresh `--confirmed` for that operation. Confirm an evaluator run, for example:
 
 ```text
 python SKILL_DIR/scripts/lab.py --config <lab-config> --confirmed baseline

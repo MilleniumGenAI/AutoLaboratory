@@ -10,7 +10,6 @@ from . import (
     cancel,
     dashboard,
     doctor,
-    epoch,
     guide,
     promote,
     preflight,
@@ -23,7 +22,7 @@ from . import (
 )
 
 COMMANDS = (
-    doctor, baseline, epoch, status, recover, trial, vault, cancel,
+    doctor, baseline, status, recover, trial, vault, cancel,
     dashboard, promote, guide, preflight, resume, storage,
 )
 
@@ -35,7 +34,7 @@ def register_all(subparsers: Any) -> None:
 
 def run_command(args: Any, labs_root: Path | None) -> dict[str, Any]:
     by_name = {
-        "baseline": baseline, "epoch": epoch, "status": status,
+        "baseline": baseline, "status": status,
         "recover": recover, "trial": trial,
         "vault": vault, "dashboard": dashboard, "doctor": doctor, "promote": promote,
         "storage": storage, "cancel": cancel,

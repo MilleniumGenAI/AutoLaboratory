@@ -204,13 +204,15 @@ class TrialCliTest(unittest.TestCase):
         self.assertIn("worker", data)
         self.assertIn("running_manifests", data)
 
-    def test_removed_trial_forms_and_step_are_argument_errors(self):
+    def test_removed_trial_forms_step_epoch_and_supersede_are_argument_errors(self):
         hypothesis_file = self.work / "h.json"
         hypothesis_file.write_text(self._hypothesis_json(), encoding="utf-8")
         for args in (
             ["trial"],
             ["trial", "start", "--hypothesis", str(hypothesis_file)],
             ["step", "--run"],
+            ["epoch", "open", "--spec", str(hypothesis_file), "--reason", "bump"],
+            ["baseline", "--supersede"],
         ):
             with self.subTest(args=args):
                 result = self._run(args)

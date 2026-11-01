@@ -172,7 +172,7 @@ class V04IndependentReviewTest(unittest.TestCase):
         changed_state = dict(original_state)
         changed_state["current_epoch"] = int(original_state.get("current_epoch", 1)) + 1
         store.save_state(config.lab_id, changed_state)
-        with self.assertRaisesRegex(LabError, "Resume epoch changed"):
+        with self.assertRaisesRegex(LabError, "Resume contract changed"):
             resume_run(config, "trial-0001")
         store.save_state(config.lab_id, original_state)
 

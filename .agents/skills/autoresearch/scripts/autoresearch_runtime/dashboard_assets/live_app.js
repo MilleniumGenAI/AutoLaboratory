@@ -409,7 +409,6 @@ function renderPortfolio() {
     heading.append(node("span", "v04-status", [lab.status || lifecycleMode,
       "SQLite"].join(" · ")));
     card.append(heading);
-    card.append(node("p", "v04-muted", "Эпоха " + formatValue(summary.current_epoch_id ?? summary.current_epoch)));
     const metricGrid = node("div", "v04-mini-grid");
     if (primary) renderMiniMetric(metricGrid, summary, primary, trend, "Основная");
     else renderMiniMetric(metricGrid, summary, null, trend, "Основная");
@@ -530,7 +529,7 @@ function renderRunCharts() {
   const legacy = lab && lab.source === "legacy";
   const host = section("Метрики запусков", legacy
     ? "Графики строятся из сводки legacy-лаборатории; список можно листать назад."
-    : "Графики показывают запуски выбранной эпохи; список можно листать назад.");
+    : "Графики показывают запуски выбранного контракта; список можно листать назад.");
   if (!runMetrics.length) {
     host.append(node("p", "v04-muted", UNAVAILABLE));
     detail.append(host);
@@ -552,7 +551,7 @@ function renderRunCharts() {
     }
     host.append(card);
   }
-  if (!chartCount) host.append(node("p", "v04-chart-legend", "Для этой эпохи значения метрик отсутствуют."));
+  if (!chartCount) host.append(node("p", "v04-chart-legend", "Для этого контракта значения метрик отсутствуют."));
   detail.append(host);
 }
 
@@ -576,16 +575,16 @@ function renderRunList() {
   const legacy = lab && lab.source === "legacy";
   const host = section("История запусков", legacy
     ? "Запуски legacy-лаборатории; список листается локально."
-    : "Первые 20 запусков выбраны для текущей эпохи.");
+    : "Первые 20 запусков выбраны для текущего контракта.");
   if (selectedEpoch || legacy) {
     const toolbar = node("div", "v04-run-toolbar");
     if (!legacy) {
-      const label = node("label", "v04-field", "Эпоха");
+      const label = node("label", "v04-field", "Контракт");
       const select = document.createElement("select");
-      select.setAttribute("aria-label", "Выбрать эпоху");
+      select.setAttribute("aria-label", "Выбрать контракт");
       const options = epochIds.length ? epochIds : [selectedEpoch];
       for (const epoch of options.filter(value => value !== null && value !== undefined)) {
-        const option = node("option", "", "Эпоха " + epoch);
+        const option = node("option", "", "Контракт " + epoch);
         option.value = String(epoch);
         select.append(option);
       }
@@ -623,11 +622,11 @@ function renderRunList() {
     return host;
   }
   if (!selectedEpoch && !legacy) {
-    host.append(node("p", "v04-muted", "Эпоха недоступна."));
+    host.append(node("p", "v04-muted", "Контракт недоступен."));
     return host;
   }
   if (!runPage.items.length) {
-    host.append(node("p", "v04-muted", legacy ? "История запусков пока пуста." : "Запусков в этой эпохе пока нет."));
+    host.append(node("p", "v04-muted", legacy ? "История запусков пока пуста." : "Запусков для этого контракта пока нет."));
     return host;
   }
   const unavail = typeof UNAVAILABLE !== "undefined" ? UNAVAILABLE : "Недоступно";
@@ -637,8 +636,7 @@ function renderRunList() {
     if (run.title) {
       row.append(node("span", "v04-run-title", run.title));
     }
-    const statusText = (run.status || unavail) + (legacy
-      ? " · файловая история" : " · эпоха " + (typeof formatValue === "function" ? formatValue(run.epoch_id) : run.epoch_id));
+    const statusText = (run.status || unavail) + (legacy ? " · файловая история" : "");
     row.append(node("span", "badge", statusText));
     if (run.reason) {
       row.append(node("span", "v04-muted v04-run-reason", run.reason));
@@ -710,8 +708,7 @@ function renderLabDetail() {
   const summary = summaryFor(lab);
   const heading = node("section", "hero neutral v04-hero");
   heading.append(node("h2", "hero-title", lab.goal || lab.name || UNAVAILABLE));
-  const verdict = node("p", "verdict", (lab.status || "активная") + " · эпоха " +
-    formatValue(summary.current_epoch_id ?? summary.current_epoch));
+  const verdict = node("p", "verdict", lab.status || "активная");
   heading.append(verdict);
   if (summary.goal_status === "met") {
     heading.append(node("span", "badge good", "Цель достигнута"));

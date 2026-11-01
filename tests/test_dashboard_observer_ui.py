@@ -69,7 +69,7 @@ class DashboardObserverUITests(unittest.TestCase):
         self.assertIn('id="navigation"', self.html)
         self.assertGreaterEqual(self.app.count('applySearch(document.getElementById("lab-search").value)'), 2)
         self.assertIn("Активных лабораторий пока нет.", self.app)
-        self.assertIn("Запусков в этой эпохе пока нет.", self.app)
+        self.assertIn("Запусков для этого контракта пока нет.", self.app)
 
     def _run_js(self, harness: str) -> dict[str, object]:
         node = shutil.which("node")

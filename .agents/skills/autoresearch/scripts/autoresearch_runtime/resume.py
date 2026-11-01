@@ -228,7 +228,7 @@ def _validate_snapshot(config: LabConfig, state: dict[str, Any], manifest: dict[
     if manifest.get("base_commit") != state.get("best_commit"):
         raise LabError("Resume base snapshot is no longer the current best candidate")
     if manifest.get("epoch") is not None and manifest.get("epoch") != state.get("current_epoch"):
-        raise LabError("Resume epoch changed after the run was interrupted")
+        raise LabError("Resume contract changed after the run was interrupted")
     from .state import _verify_migration_baseline_trust, _verify_passport_pins
     _verify_migration_baseline_trust(config, state)
     _verify_passport_pins(config, manifest)

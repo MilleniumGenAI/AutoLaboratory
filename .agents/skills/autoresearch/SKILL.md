@@ -22,7 +22,7 @@ The dashboard does not start by itself. Run `dashboard start` to watch progress;
 
 ## Measure and compare
 
-Run and verify a baseline before trials; each evaluator run requires current operation confirmation plus a valid host profile. Pin evaluator, inputs, model conditions, metrics, repeats, usage, and hashes. Historical results are context. Fresh baselines re-evaluate and may call a paid model; offline rescore uses stored responses without new calls. Never switch to `fresh` to bypass a mismatch. If the contract changes, open an epoch and explain why; refresh the profile fingerprint before the next evaluator run, and do not combine incomparable epochs. AutoResearch does not limit spending. Request and cost usage is recorded and reported; the user sets spending limits on the API keys.
+Run and verify a baseline before trials; each evaluator run requires current operation confirmation plus a valid host profile. Pin evaluator, inputs, model conditions, metrics, repeats, usage, and hashes. Historical results are context. Fresh baselines re-evaluate and may call a paid model; offline rescore uses stored responses without new calls. Never switch to `fresh` to bypass a mismatch. If the contract changes, prepare a new lab and explain why; refresh the profile fingerprint before the next evaluator run, and do not combine labs with incomparable contracts. AutoResearch does not limit spending. Request and cost usage is recorded and reported; the user sets spending limits on the API keys.
 
 Framework acceptance means a trial passed comparison with its parent and guards. Goal success means explicit thresholds and confirmation repeats passed. Missing or incomplete `goal_criteria` leave status exploratory or unknown. Record a source/hash for artifact-based criteria. Assess separate external gates independently; `best_id`, acceptance, or a higher composite score does not prove goal success.
 
@@ -35,7 +35,7 @@ Edit only `candidate/`. Run one change per trial and compare it to the declared 
 Use the automatic diagnostics surfaced directly in the cockpit envelope instead of filesystem reads:
 - `impact.error_tail` and `run_detail.error_tail`: last 10 lines (up to 600 chars) of evaluator stderr/stdout on crash, eliminating the need to read `run.log`.
 - `case_samples` inside `case_regression` signal: up to 3 compact regressed case diagnostics (`id`, `status`, `error`, `metrics`), eliminating the need to read `cases.jsonl`.
-- `dead_ends` in cockpit summary: up to 8 unique rejected/crashed hypotheses from the current epoch (backed by 100-run duplicate/similarity memory), protecting agents from repeating failed ideas after context compaction.
+- `dead_ends` in cockpit summary: up to 8 unique rejected/crashed hypotheses for the current contract (backed by 100-run duplicate/similarity memory), protecting agents from repeating failed ideas after context compaction.
 
 Keep improvements only when accepted; report goal criteria and confirmation repeats separately. For SQLite labs, use guide/run/job projections, not sidecar files. A missing CLI response does not prove an operation failed. When local iterations plateau or `repeated_rejection` occurs (3+ times), use read-only external literature retrieval and test the resulting idea inside `candidate/` via `lab.py`. See [autonomous-loop-protocol.md](references/autonomous-loop-protocol.md) for the complete protocol.
 

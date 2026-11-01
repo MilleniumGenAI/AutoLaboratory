@@ -12,7 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from autoresearch_runtime.commands import baseline, epoch, recover, resume, trial
+from autoresearch_runtime.commands import baseline, recover, resume, trial
 
 
 class DurableCliDispatchTest(unittest.TestCase):
@@ -27,7 +27,7 @@ class DurableCliDispatchTest(unittest.TestCase):
     def test_sync_mutating_commands_use_the_common_durable_operation_path(self):
         with patch("autoresearch_runtime.commands.baseline.resolve_config", return_value=self.config), \
              patch("autoresearch_runtime.commands.baseline.run_durable_operation", return_value={"status": "accepted"}) as run:
-            baseline.run(SimpleNamespace(supersede=False, reason=""), None)
+            baseline.run(SimpleNamespace(), None)
             run.assert_called_once_with(self.config, "baseline", {})
 
         run_id = "trial-0001"
@@ -40,14 +40,6 @@ class DurableCliDispatchTest(unittest.TestCase):
              patch("autoresearch_runtime.commands.recover.run_durable_operation", return_value={"interrupted": []}) as run:
             recover.run(SimpleNamespace(), None)
             run.assert_called_once_with(self.config, "recover", {"restore_candidate": True})
-
-        spec_path = Path(self.temp.name) / "epoch.json"
-        spec = {"metrics": {"primary": "score", "direction": "max"}}
-        spec_path.write_text(json.dumps(spec), encoding="utf-8")
-        with patch("autoresearch_runtime.commands.epoch.resolve_config", return_value=self.config), \
-             patch("autoresearch_runtime.commands.epoch.run_durable_operation", return_value={"epoch": 2}) as run:
-            epoch.run(SimpleNamespace(epoch_command="open", spec=spec_path, reason=""), None)
-            run.assert_called_once_with(self.config, "epoch", {"action": "open", "spec": spec})
 
     def test_trial_start_enqueues_the_normalized_hypothesis_once(self):
         raw = {"title": "A", "observation": "B", "expected_effect": "C", "evidence": ["D"], "unknown": "dropped"}

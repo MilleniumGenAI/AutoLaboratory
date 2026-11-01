@@ -21,14 +21,14 @@ _SANDBOX_SCOPES = {"workspace", "container", "vm", "microvm"}
 
 
 def contract_fingerprint(config: Any) -> str:
-    """Hash the active measurement epoch and its evaluator contract for approval binding."""
+    """Hash the active measurement contract, including its evaluator, for approval binding."""
     from .measurement import epoch_fingerprint
     from .state import load_state
 
     state = load_state(config)
     epoch_id = state.get("current_epoch")
     if isinstance(epoch_id, bool) or not isinstance(epoch_id, int) or epoch_id < 1:
-        raise LabError("SQLite lab has no current contract epoch", code="E_HARNESS_POLICY_REJECTED")
+        raise LabError("SQLite lab state has no current contract record", code="E_HARNESS_POLICY_REJECTED")
     material = {
         "schema_version": 1,
         "epoch_id": epoch_id,

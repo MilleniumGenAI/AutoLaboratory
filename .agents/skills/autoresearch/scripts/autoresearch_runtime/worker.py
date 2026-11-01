@@ -34,7 +34,7 @@ def _operation_heartbeat(store: Any, operation_id: str, stop: threading.Event) -
 def _dispatch_operation(config: Any, command: str, params: dict[str, Any]) -> Any:
     if command == "baseline":
         from .baseline import run_baseline
-        return run_baseline(config, supersede=bool(params.get("supersede")), reason=params.get("reason"))
+        return run_baseline(config)
     if command == "trial":
         from .trial import run_trial
         return run_trial(config, params.get("hypothesis"))
@@ -47,11 +47,6 @@ def _dispatch_operation(config: Any, command: str, params: dict[str, Any]) -> An
     if command == "recover":
         from .trial import recover_lab
         return {"interrupted": recover_lab(config, restore_candidate=params.get("restore_candidate", True) is not False)}
-    if command == "epoch":
-        from .measurement import open_contract_epoch
-        spec = params.get("spec", {})
-        reason = params.get("reason")
-        return open_contract_epoch(config.path, spec, reason=reason)
     raise ValueError(f"Unsupported operation command: {command}")
 
 

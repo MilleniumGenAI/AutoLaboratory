@@ -731,7 +731,7 @@ def render_ascii_card(cockpit: dict[str, Any]) -> str:
     base_mean_str = f"{base_mean:.4g}{unit}" if base_mean is not None else "—"
     lines = [
         "╔══════════════════════════ [ AGENT COCKPIT ] ══════════════════════════╗",
-        f"║ Фаза: {stage:<16} Эпоха: {state.get('epoch', 1):<4} Метрика: {primary} ({state.get('direction', 'max')})",
+        f"║ Фаза: {stage:<16} Метрика: {primary} ({state.get('direction', 'max')})",
         f"║ Baseline worst: {base_str:<12} mean: {base_mean_str} | Best worst: {best_str} mean: {best_mean_str}",
         f"║ Goal: {cockpit.get('goal_status', 'unknown')}",
     ]

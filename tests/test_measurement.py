@@ -11,6 +11,7 @@ import unittest
 from pathlib import Path
 
 from durable_workflow_helpers import run_baseline
+from autoresearch_runtime.errors import LabError
 from autoresearch_runtime.evaluator import _evaluate_once
 from autoresearch_runtime.lab import init_lab, load_config, load_state, run_trial
 from autoresearch_runtime.measurement import incomparable_with_current, migrate_manifest
@@ -62,26 +63,23 @@ class MeasurementTest(unittest.TestCase):
         self.assertEqual(migrated["schema"], 1)
         self.assertEqual(migrated["epoch"], 1)
 
-    def test_baseline_supersede_opens_new_epoch_and_records_noise_floor(self):
+    def test_first_baseline_records_contract_and_noise_floor(self):
         config = self._config()
         init_lab(config)
         first = run_baseline(config)
         self.assertEqual(first["epoch"], 1)
         state = load_state(config)
         self.assertEqual(state["noise_floor"]["primary"], 0.0)
-        second = run_baseline(config, supersede=True, reason="new evaluator contract")
-        self.assertEqual(second["epoch"], 2)
-        state = load_state(config)
-        self.assertEqual(len(state["epochs"]), 2)
-        self.assertEqual(state["epochs"][0]["supersede_reason"], "new evaluator contract")
+        self.assertEqual(len(state["epochs"]), 1)
+        with self.assertRaisesRegex(LabError, "Baseline already exists"):
+            run_baseline(config)
 
-    def test_trial_from_prior_epoch_is_incomparable_with_current(self):
+    def test_trial_from_another_contract_record_is_incomparable_with_current(self):
         config = self._config()
         init_lab(config)
         run_baseline(config)
-        run_baseline(config, supersede=True, reason="epoch bump")
         manifest = {
-            "epoch": 1,
+            "epoch": 2,
             "evaluator": list(config.evaluator),
             "input_hashes": {item["path"]: item["sha256"] for item in load_state(config)["inputs"]},
             "config_sha256": load_state(config)["config_sha256"],
