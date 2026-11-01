@@ -4,8 +4,8 @@ Each row is one real run of [`tests/harness_smoke/run.py`](../tests/harness_smok
 
 | Agent | Version | Model | Date | Result |
 | --- | --- | --- | --- | --- |
-| Claude Code | 2.1.316 | Haiku | 2026-11-01 | Passed on Windows: the agent wrote the spec and prepared the lab, then ran a baseline and one accepted trial; `mean_error` 2.000 to 0.000, measured project unchanged, 114 s |
-| Codex CLI | 0.166.0-alpha.5.1 | gpt-6-luna | 2026-11-01 | Passed on Windows: same scenario and result, 122 s |
+| Claude Code | 2.1.316 | Haiku | 2026-11-01 | Passed on Windows with 0.9.0: the agent wrote the spec and prepared the lab, then ran a baseline and one accepted trial; `mean_error` 2.000 to 0.000, measured project unchanged, 117 s |
+| Codex CLI | 0.166.0-alpha.5.1 | gpt-6-luna | 2026-11-01 | Passed on Windows with 0.9.0: same scenario and result, 149 s |
 | Cursor | | | | Not verified |
 | Gemini CLI | | | | Not verified |
 
