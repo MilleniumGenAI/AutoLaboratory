@@ -116,7 +116,7 @@ def run_doctor(project: Path | None = None) -> dict[str, Any]:
             "python SKILL_DIR/scripts/autoresearch.py doctor",
             "python SKILL_DIR/scripts/prepare.py --program program.md --spec spec.json",
             "python SKILL_DIR/scripts/lab.py --config <config> baseline",
-            "python SKILL_DIR/scripts/lab.py --config <config> trial start --hypothesis hypothesis.json",
+            "python SKILL_DIR/scripts/lab.py --config <config> trial start --hypothesis-json '{\"title\":\"...\",\"observation\":\"...\",\"expected_effect\":\"...\"}'",
             "python SKILL_DIR/scripts/lab.py --config <config> trial wait",
             "python SKILL_DIR/scripts/lab.py --config <config> status",
             "python SKILL_DIR/scripts/lab.py --config <config> promote",

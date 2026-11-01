@@ -1,25 +1,12 @@
-"""Measurement epochs and manifest migrations (in memory only)."""
+"""Measurement contract records and manifest migrations (in memory only)."""
 
 from __future__ import annotations
 
-import json
-import hashlib
 import math
-import shutil
-import tempfile
-from dataclasses import replace
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
-from .config import LabConfig, load_config, validate_config_file
-from .errors import LabError
-from .store import _sha256, _write_json
-
-_CONTRACT_SPEC_KEYS = frozenset({
-    "metrics", "repeats", "evaluator", "input_files", "baseline_validation", "timeout_seconds",
-    "goal_criteria", "evaluator_capabilities", "expected_attestations",
-})
+from .config import LabConfig
 
 
 def migrate_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
@@ -55,204 +42,22 @@ def find_epoch(state: dict[str, Any], epoch_id: int) -> dict[str, Any] | None:
     return None
 
 
-def open_epoch(
-    state: dict[str, Any],
-    config: LabConfig,
-    *,
-    reason: str | None = None,
-    previous_epoch_id: int | None = None,
-    metrics: dict[str, Any] | None = None,
-    repeats: int | None = None,
-) -> int:
-    migrate_state(state)
-    superseded_id = previous_epoch_id
-    if superseded_id is None:
-        if state["epochs"]:
-            superseded_id = int(state["current_epoch"])
-        elif reason:
-            superseded_id = int(state.get("current_epoch") or 1)
-    metrics_record = metrics if metrics is not None else {"primary": config.primary, "direction": config.direction}
-    repeats_record = repeats if repeats is not None else config.repeats
-    # An upgraded lab has no epochs list, but its existing runs already are epoch 1.
-    # Supersede must advance past that implicit era instead of allocating 1 again.
-    if not state["epochs"] and reason:
-        implicit = int(state.get("current_epoch") or 1)
-        now = datetime.now(timezone.utc).isoformat()
-        state["epochs"].append({
-            "id": implicit,
-            "started_at": None,
-            "superseded_at": now,
-            "supersede_reason": reason,
-            **epoch_fingerprint(config, state),
-        })
-    epoch_id = (max(int(item.get("id") or 0) for item in state["epochs"]) + 1) if state["epochs"] else 1
-    if state["epochs"] and state["epochs"][-1].get("id") != epoch_id and state["epochs"][-1].get("superseded_at") is None:
-        previous = state["epochs"][-1]
-        previous["superseded_at"] = datetime.now(timezone.utc).isoformat()
-        previous["supersede_reason"] = reason or ""
-    record = {
-        "id": epoch_id,
-        "started_at": datetime.now(timezone.utc).isoformat(),
-        "superseded_at": None,
-        "supersede_reason": None,
-        "previous_epoch_id": superseded_id,
-        "metrics": metrics_record,
-        "repeats": repeats_record,
-        **epoch_fingerprint(config, state),
-    }
-    state["epochs"].append(record)
-    state["current_epoch"] = epoch_id
-    return epoch_id
-
-
-def _resnapshot_candidate_source(config: LabConfig, state: dict[str, Any], *, reason: str) -> None:
-    """Move a strict lab to its declared source set without losing the old snapshot."""
-    if config.editable_files is None:
-        return
-
-    candidate_path = config.state_dir / "candidate"
-    if candidate_path.is_symlink() or not candidate_path.is_dir():
-        raise LabError("Candidate directory is missing or linked")
-    candidate = candidate_path.resolve()
-
-    old_source = state.get("source")
-    if not isinstance(old_source, list):
-        raise LabError("Cannot resnapshot a lab without its previous source snapshot")
-    old_hashes: dict[str, str] = {}
-    for item in old_source:
-        if not isinstance(item, dict) or not isinstance(item.get("path"), str):
-            raise LabError("Previous source snapshot is invalid")
-        digest = item.get("sha256")
-        if not isinstance(digest, str) or len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest.lower()):
-            raise LabError("Previous source snapshot is invalid")
-        if item["path"] in old_hashes:
-            raise LabError("Previous source snapshot has duplicate paths")
-        old_hashes[item["path"]] = digest.lower()
-
-    candidate_files: dict[str, Path] = {}
-    for path in candidate.rglob("*"):
-        relative = path.relative_to(candidate)
-        if ".git" in relative.parts:
-            continue
-        if path.is_symlink():
-            raise LabError("Candidate symlink is not allowed")
-        if not path.is_file():
-            continue
-        resolved = path.resolve()
-        if not resolved.is_relative_to(candidate):
-            raise LabError("Candidate source path leaves the candidate directory")
-        candidate_files[relative.as_posix()] = path
-
-    declared = set(config.source_files)
-    missing = declared - candidate_files.keys()
-    if missing:
-        raise LabError(f"Declared candidate source is missing: {', '.join(sorted(missing))}")
-
-    obsolete = set(candidate_files) - declared
-    for name in sorted(obsolete):
-        if name not in old_hashes or _sha256(candidate_files[name]) != old_hashes[name]:
-            raise LabError(f"Cannot remove candidate file outside the unchanged previous source snapshot: {name}")
-
-    new_source = [
-        {"path": name, "sha256": _sha256(candidate_files[name])}
-        for name in sorted(declared)
-    ]
-    previous_snapshot = [dict(item) for item in old_source]
-    if previous_snapshot != new_source:
-        snapshots = state.setdefault("source_snapshots", [])
-        if not isinstance(snapshots, list):
-            raise LabError("Source snapshot history is invalid")
-        snapshots.append({
-            "epoch_id": int(state.get("current_epoch") or 1),
-            "recorded_at": datetime.now(timezone.utc).isoformat(),
-            "reason": reason,
-            "source_root": state.get("source_root"),
-            "source_head": state.get("source_head"),
-            "files": previous_snapshot,
-        })
-
-    # Delete only files proven unchanged from the prior immutable snapshot.
-    for name in sorted(obsolete):
-        candidate_files[name].unlink()
-    state["source"] = new_source
-
-
-def open_contract_epoch(config_path: Path, spec: dict[str, Any], *, reason: str) -> dict[str, Any]:
-    if not isinstance(reason, str) or not reason.strip():
-        raise LabError("epoch open requires --reason")
-    reason = reason.strip()
-    if not isinstance(spec, dict):
-        raise LabError("epoch spec must be a JSON object")
-    unknown = set(spec) - _CONTRACT_SPEC_KEYS
-    if unknown:
-        raise LabError(f"Unsupported epoch spec keys: {', '.join(sorted(unknown))}")
-
-    resolved = config_path.resolve()
-    config = load_config(resolved)
-    from .state import _runs, load_state
-
-    state = load_state(config)
-    migrate_state(state)
-    if any(item.get("status") == "running" for item in _runs(config)):
-        raise LabError("Interrupted run exists; run recover first")
-
-    from .sqlite_store import SQLiteStore
-    raw = json.loads(SQLiteStore().load_config_bytes(config.lab_id).decode("utf-8"))
-    for key, value in spec.items():
-        raw[key] = value
-    raw_config_bytes = (json.dumps(raw, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
-    # Keep relative paths anchored to the same directory and validate before replacing the contract.
-    with tempfile.NamedTemporaryFile(dir=resolved.parent, suffix=".json", delete=False) as temporary:
-        proposed = Path(temporary.name)
-    try:
-        proposed.write_bytes(raw_config_bytes)
-        validated_config = validate_config_file(proposed)
-    finally:
-        proposed.unlink(missing_ok=True)
-    from .runtimeops import mark_operation_finalizing
-    mark_operation_finalizing()
-    # Validation uses a temporary file so relative paths are resolved normally,
-    # then retain the SQLite lab identity and virtual config location.
-    config = replace(
-        validated_config,
-        path=config.path,
-        source_root=config.source_root,
-        state_dir=config.state_dir,
-        lab_id=config.lab_id,
-        config_bytes=raw_config_bytes,
-        passport=config.passport,
-    )
-    updated_hash = hashlib.sha256(raw_config_bytes).hexdigest()
-    _resnapshot_candidate_source(config, state, reason=reason)
-    state["inputs"] = [{"path": str(item), "sha256": _sha256(item)} for item in config.input_files]
-    state["config_sha256"] = updated_hash
-    state["config_copy_sha256"] = updated_hash
-    epoch_id = open_epoch(
-        state,
-        config,
-        reason=reason,
-        metrics={"primary": config.primary, "direction": config.direction},
-        repeats=config.repeats,
-    )
-    state["baseline_id"] = None
-    state["best_id"] = None
-    state["baseline_verified"] = False
-    from .sqlite_store import SQLiteStore
-    SQLiteStore().save_config_and_state(config.lab_id, raw, state, raw_config_bytes=raw_config_bytes)
-    epoch_record = state["epochs"][-1]
-    return {
-        "epoch_id": epoch_id,
-        "previous_epoch_id": epoch_record.get("previous_epoch_id"),
-        "config_sha256": updated_hash,
-        "repeats": config.repeats,
-        "metrics": {"primary": config.primary, "direction": config.direction},
-    }
-
-
 def ensure_epoch(state: dict[str, Any], config: LabConfig) -> int:
+    """Record the lab's contract once, on its first baseline; a lab never opens another one."""
     migrate_state(state)
     if not state["epochs"]:
-        return open_epoch(state, config)
+        state["epochs"].append({
+            "id": 1,
+            "started_at": datetime.now(timezone.utc).isoformat(),
+            "superseded_at": None,
+            "supersede_reason": None,
+            "previous_epoch_id": None,
+            "metrics": {"primary": config.primary, "direction": config.direction},
+            "repeats": config.repeats,
+            **epoch_fingerprint(config, state),
+        })
+        state["current_epoch"] = 1
+        return 1
     current = int(state["current_epoch"])
     if find_epoch(state, current) is None:
         state["current_epoch"] = state["epochs"][-1]["id"]
@@ -296,7 +101,7 @@ def incomparable_with_current(manifest: dict[str, Any], state: dict[str, Any], c
     epoch_id = manifest_epoch_id(manifest, state)
     current_epoch = int(state.get("current_epoch") or 1)
     if epoch_id != current_epoch:
-        return "incomparable_with_current: measurement epoch changed"
+        return "incomparable_with_current: measurement contract changed"
     current = epoch_fingerprint(config, state)
     snapshot = {
         "config_sha256": manifest.get("config_sha256"),
@@ -310,9 +115,9 @@ def incomparable_with_current(manifest: dict[str, Any], state: dict[str, Any], c
                 snapshot[key] = epoch.get(key)
     for key in ("config_sha256", "input_hashes"):
         if snapshot.get(key) != current.get(key):
-            return f"incomparable_with_current: {key} differs from the current epoch"
+            return f"incomparable_with_current: {key} differs from the current contract"
     if list(snapshot.get("evaluator") or []) != list(current.get("evaluator") or []):
-        return "incomparable_with_current: evaluator differs from the current epoch"
+        return "incomparable_with_current: evaluator differs from the current contract"
     return None
 
 

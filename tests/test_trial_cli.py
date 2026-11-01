@@ -17,6 +17,11 @@ from autoresearch_runtime.config import load_config
 from autoresearch_runtime.harness_policy import contract_fingerprint
 from autoresearch_runtime.sqlite_store import SQLiteStore
 
+try:
+    from durable_workflow_helpers import wait_for_trial_result
+except ImportError:
+    from tests.durable_workflow_helpers import wait_for_trial_result
+
 _REPO = Path(__file__).resolve().parents[1]
 _CLI = _REPO / ".agents" / "skills" / "autoresearch" / "scripts" / "autoresearch.py"
 _SCRIPTS = _CLI.parent
@@ -144,12 +149,17 @@ class TrialCliTest(unittest.TestCase):
         ), "baseline")
         return config_path
 
-    def _hypothesis(self) -> Path:
-        path = self.work / "h.json"
-        path.write_text(json.dumps({
-            "title": "Improve", "observation": "low", "expected_effect": "higher",
-        }), encoding="utf-8")
-        return path
+    def _hypothesis_json(self) -> str:
+        return json.dumps({"title": "Improve", "observation": "low", "expected_effect": "higher"})
+
+    def _start_and_wait(self, config: str) -> dict:
+        """Start one trial through the CLI, then wait until its decided manifest is recorded."""
+        self._assert_ok(self._run_approved(
+            config, ["--confirmed", "--config", config, "trial", "start", "--hypothesis-json", self._hypothesis_json()],
+        ), "trial")
+        return wait_for_trial_result(lambda: self._assert_ok(
+            self._run(["--config", config, "trial", "wait", "--timeout", "60"]), "trial",
+        ))
 
     def _candidate_value(self, config_path: str) -> Path:
         config = load_config(Path(config_path), allow_pending=True)
@@ -160,14 +170,9 @@ class TrialCliTest(unittest.TestCase):
         self.spec = self._write_spec()
         config = self._prepare_baseline()
         self._candidate_value(config).write_text("2", encoding="utf-8")
-        hyp = self._hypothesis()
-        start = self._run_approved(
-            config, ["--confirmed", "--config", config, "trial", "start", "--hypothesis", str(hyp)],
-        )
-        self._assert_ok(start, "trial")
-        locked = self._run_approved(
-            config, ["--confirmed", "--config", config, "trial", "start", "--hypothesis", str(hyp)],
-        )
+        start_args = ["--confirmed", "--config", config, "trial", "start", "--hypothesis-json", self._hypothesis_json()]
+        self._assert_ok(self._run_approved(config, start_args), "trial")
+        locked = self._run_approved(config, start_args)
         if locked.returncode == 0:
             # Worker can finish before the second start on a fast host; lock is timing-sensitive.
             pass
@@ -177,18 +182,12 @@ class TrialCliTest(unittest.TestCase):
             self.assertFalse(err["ok"])
             self.assertEqual(err["command"], "trial")
             self.assertEqual(err["error"]["code"], "E_LOCKED")
-        deadline = time.monotonic() + 90.0
-        trial_data = None
-        while time.monotonic() < deadline:
-            wait = self._run(["--config", config, "trial", "wait", "--timeout", "60"])
-            self.assertEqual(wait.returncode, 0, wait.stderr)
-            data = self._envelope(wait)["data"]
-            if isinstance(data, dict) and data.get("status"):
-                trial_data = data
-                break
-            if not data.get("pending"):
-                break
-        self.assertIsNotNone(trial_data)
+        # The decided manifest comes back from `trial wait`, not a pending placeholder.
+        trial_data = wait_for_trial_result(lambda: self._assert_ok(
+            self._run(["--config", config, "trial", "wait", "--timeout", "60"]), "trial",
+        ))
+        self.assertEqual(trial_data["id"], "trial-0001")
+        self.assertEqual(trial_data["title"], "Improve")
         self.assertEqual(trial_data["status"], "accepted")
         store = SQLiteStore(self.home)
         lab_id = store.resolve_lab_id(Path(config))
@@ -205,14 +204,27 @@ class TrialCliTest(unittest.TestCase):
         self.assertIn("worker", data)
         self.assertIn("running_manifests", data)
 
+    def test_removed_trial_forms_step_epoch_and_supersede_are_argument_errors(self):
+        hypothesis_file = self.work / "h.json"
+        hypothesis_file.write_text(self._hypothesis_json(), encoding="utf-8")
+        for args in (
+            ["trial"],
+            ["trial", "start", "--hypothesis", str(hypothesis_file)],
+            ["step", "--run"],
+            ["epoch", "open", "--spec", str(hypothesis_file), "--reason", "bump"],
+            ["baseline", "--supersede"],
+        ):
+            with self.subTest(args=args):
+                result = self._run(args)
+                self.assertEqual(result.returncode, 2, result.stdout)
+                self.assertEqual(result.stdout, "")
+                self.assertIn("error:", result.stderr)
+
 
     def test_promote_export_patch(self):
         config = self._prepare_baseline()
         self._candidate_value(config).write_text("2", encoding="utf-8")
-        hyp = self._hypothesis()
-        self._assert_ok(self._run_approved(
-            config, ["--confirmed", "--config", config, "trial", "--hypothesis", str(hyp)],
-        ), "trial")
+        self._start_and_wait(config)
         lab_id = SQLiteStore(self.home).resolve_lab_id(Path(config))
         operation = SQLiteStore(self.home).get_latest_operation(lab_id)
         self.assertEqual(operation["status"], "succeeded")

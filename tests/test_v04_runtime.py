@@ -21,7 +21,6 @@ from autoresearch_runtime.sqlite_store import SQLiteStore
 from autoresearch_runtime.case_checkpoint import summarize_usage
 from autoresearch_runtime.runtimeops import reserve_and_launch_operation
 from autoresearch_runtime.worker import run_operation_worker
-from autoresearch_runtime.measurement import open_contract_epoch
 from autoresearch_runtime.cockpit import build_cockpit
 from tests.durable_workflow_helpers import (
     approved_offline_profile, run_baseline, run_durable_operation, run_trial,
@@ -506,18 +505,6 @@ class SQLiteRuntimeIntegrationTest(unittest.TestCase):
             self.assertEqual(worker_errors, [])
             self.assertEqual(store.get_operation(operation["operation_id"])["status"], "succeeded")
 
-    def test_epoch_open_reads_and_writes_virtual_config_in_sqlite(self):
-        _prepared, config = self._prepare()
-        result = open_contract_epoch(config.path, {"repeats": 1}, reason="Update measurement repeats")
-        updated = load_config(str(config.lab_id), allow_pending=True)
-        self.assertEqual(result["epoch_id"], 2)
-        self.assertEqual(updated.repeats, 1)
-        self.assertEqual(load_state(updated)["current_epoch"], 2)
-        self.assertFalse(config.path.exists())
-        self.assertFalse((config.state_dir / "lab.json").exists())
-
-
-
     def test_unverified_migrated_baseline_cannot_be_used_for_trial(self):
         _prepared, config = self._prepare()
         store = SQLiteStore()
@@ -538,11 +525,10 @@ class SQLiteRuntimeIntegrationTest(unittest.TestCase):
     def test_new_native_baseline_releases_only_its_own_migration_trust_gate(self):
         _prepared, config = self._prepare()
         store = SQLiteStore()
-        self.assertEqual(run_baseline(config)["status"], "accepted")
         binding = {
             "complete": True,
             "baseline_trust": {
-                "source_baseline_id": "baseline",
+                "source_baseline_id": "legacy-baseline",
                 "source_baseline_verified": True,
                 "usable_for_comparison": False,
                 "warnings": ["source result hash is missing"],
@@ -550,17 +536,12 @@ class SQLiteRuntimeIntegrationTest(unittest.TestCase):
         }
         store.set_document(config.lab_id, "migration_binding", binding)
 
-        open_contract_epoch(
-            config.path,
-            {"repeats": config.repeats},
-            reason="verify a native baseline",
-        )
-        config = load_config(str(config.lab_id), allow_pending=True)
+        # The imported source is not this lab's baseline, so the first native baseline releases the gate.
         baseline = run_baseline(config)
         self.assertEqual(baseline["status"], "accepted")
-        self.assertEqual(baseline["id"], "baseline-0002")
+        self.assertEqual(baseline["id"], "baseline")
         self.assertEqual(store.get_document(config.lab_id, "migration_binding"), binding)
-        self.assertEqual(load_state(config)["baseline_id"], "baseline-0002")
+        self.assertEqual(load_state(config)["baseline_id"], "baseline")
 
         (config.state_dir / "candidate" / "score.txt").write_text("2", encoding="utf-8")
         trial = run_trial(config, {
@@ -569,27 +550,24 @@ class SQLiteRuntimeIntegrationTest(unittest.TestCase):
             "expected_effect": "A later verified native baseline can support a trial",
         })
         self.assertEqual(trial["status"], "accepted")
-        self.assertEqual(trial["parent"], "baseline-0002")
+        self.assertEqual(trial["parent"], "baseline")
         self.assertEqual(store.get_document(config.lab_id, "migration_binding"), binding)
 
-    def test_sqlite_baseline_supersede_persists_epoch_before_creating_run(self):
+    def test_sqlite_recorded_baseline_is_not_replaced_and_anchors_trials(self):
         _prepared, config = self._prepare()
         self.assertEqual(run_baseline(config)["status"], "accepted")
-
-        baseline = run_baseline(config, supersede=True, reason="verify a fresh measurement epoch")
-        self.assertEqual(baseline["status"], "accepted")
-        self.assertEqual(baseline["id"], "baseline-0002")
-        self.assertEqual(baseline["epoch"], 2)
-        self.assertEqual(load_state(config)["current_epoch"], 2)
+        # The refusal comes before the operation queue, so the lab stays usable.
+        with self.assertRaisesRegex(LabError, "Baseline already exists"):
+            run_baseline(config)
 
         (config.state_dir / "candidate" / "score.txt").write_text("2", encoding="utf-8")
         trial = run_trial(config, {
-            "title": "Use superseding baseline",
-            "observation": "A new epoch has an independently measured baseline",
-            "expected_effect": "Trial should use the native baseline from epoch two",
+            "title": "Use the recorded baseline",
+            "observation": "The first native baseline is the only measured reference",
+            "expected_effect": "The trial is compared against the recorded baseline",
         })
         self.assertEqual(trial["status"], "accepted")
-        self.assertEqual(trial["parent"], "baseline-0002")
+        self.assertEqual(trial["parent"], "baseline")
 
 
 if __name__ == "__main__":

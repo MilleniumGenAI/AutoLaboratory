@@ -15,7 +15,7 @@ try:
 except ImportError:
     from tests import support  # noqa: F401
 
-from autoresearch_runtime.harness_policy import authorize_operation, recheck_operation
+from autoresearch_runtime.harness_policy import authorize_operation, contract_fingerprint, recheck_operation
 from autoresearch_runtime.errors import LabError
 from autoresearch_runtime.runtimeops import _bind_operation_context, reserve_operation
 from autoresearch_runtime.worker import _validate_worker_policy
@@ -256,8 +256,9 @@ class HarnessPolicyTest(unittest.TestCase):
 
     def test_durable_enqueue_binds_policy_snapshot_and_removes_confirmation_from_executor_params(self):
         policy = {"decision": "allow", "confirmed": True, "profile_sha256": "c" * 64}
-        payload = {"command": "baseline", "params": {"confirmed": True, "supersede": False}}
+        payload = {"command": "baseline", "params": {"confirmed": True}}
         with patch("autoresearch_runtime.runtimeops.safe_operation_context", return_value={"schema": 1}), \
+             patch("autoresearch_runtime.baseline.validate_baseline_request"), \
              patch("autoresearch_runtime.runtimeops.authorize_operation", return_value=policy,
                    create=True) as authorize:
             bound = _bind_operation_context(self.config, "baseline", payload)
@@ -280,6 +281,7 @@ class HarnessPolicyTest(unittest.TestCase):
         with patch("autoresearch_runtime.runtimeops._config_for", return_value=self.config), \
              patch("autoresearch_runtime.runtimeops.SQLiteStore", return_value=store), \
              patch("autoresearch_runtime.runtimeops.lab_lock", return_value=nullcontext()), \
+             patch("autoresearch_runtime.baseline.validate_baseline_request"), \
              patch("autoresearch_runtime.runtimeops.safe_operation_context", return_value={"schema": 1}):
             with self.assertRaises(LabError) as denied:
                 reserve_operation(
@@ -305,12 +307,12 @@ class HarnessPolicyTest(unittest.TestCase):
 
     def test_worker_rechecks_policy_and_strips_snapshot_before_executor_dispatch(self):
         snapshot = {"decision": "allow", "confirmed": True}
-        params = {"harness_policy": snapshot, "supersede": True}
+        params = {"harness_policy": snapshot, "repeats": 2}
         with patch("autoresearch_runtime.worker.recheck_operation", return_value=snapshot) as recheck:
             clean = _validate_worker_policy(self.config, "baseline", params)
 
         recheck.assert_called_once_with(self.config, "baseline", snapshot)
-        self.assertEqual(clean, {"supersede": True})
+        self.assertEqual(clean, {"repeats": 2})
         self.assertEqual(params["harness_policy"], snapshot)
 
     def test_cli_confirmation_flag_is_hoisted_from_after_the_command(self):
@@ -321,6 +323,24 @@ class HarnessPolicyTest(unittest.TestCase):
         self.assertEqual(explicit_confirmation(SimpleNamespace(confirmed=True)), {"confirmed": True})
         self.assertEqual(explicit_confirmation(SimpleNamespace(confirmed=False)), {})
         self.assertEqual(explicit_confirmation(SimpleNamespace()), {})
+
+    def test_contract_fingerprint_of_an_existing_lab_is_unchanged(self):
+        # Golden digest from the runtime before the epoch removal, for this fixed fixture. The hashed material
+        # (epoch id, epoch fingerprint, primary, direction, guards, repeats, capabilities) must not change,
+        # or every approved host profile bound to an existing lab goes stale.
+        config = SimpleNamespace(
+            primary="score", direction="max", guards=(("control", "min"),), repeats=2,
+            evaluator=("{python}", "evaluator.py", "{candidate}", "{run_dir}"), evaluator_capabilities={},
+        )
+        state = {
+            "current_epoch": 1,
+            "epochs": [{"id": 1, "superseded_at": None, "supersede_reason": None, "previous_epoch_id": None}],
+            "inputs": [{"path": "input/data.csv", "sha256": "1" * 64}],
+            "config_sha256": "2" * 64,
+        }
+        with patch("autoresearch_runtime.state.load_state", return_value=state):
+            digest = contract_fingerprint(config)
+        self.assertEqual(digest, "2c9dc5f86f5c6cb2928eeb86a032c1393905e5170592b3c4006574c8af9ff8f1")
 
     def test_sqlite_measurement_executors_reject_calls_outside_the_durable_worker(self):
         attempts = (

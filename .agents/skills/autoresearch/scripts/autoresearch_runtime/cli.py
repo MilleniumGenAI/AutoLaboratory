@@ -44,43 +44,6 @@ def main(argv: list[str] | None = None, *, labs_root: Path | None = None) -> int
         code = error.code if isinstance(error.code, int) else 2
         return code if code != 0 else 0
     try:
-        if args.agent and args.command == "trial" and getattr(args, "trial_command", None) in (None, "start"):
-            hint_msg = (
-                "Run: python scripts/lab.py --agent step --config <path> --hypothesis-json '{\"title\":\"...\",\"observation\":\"...\",\"expected_effect\":\"...\"}'"
-            )
-            has_inline_hypothesis = bool(
-                getattr(args, "title", None)
-                and getattr(args, "observation", None)
-                and getattr(args, "expected_effect", None)
-            )
-            has_hypothesis = bool(
-                getattr(args, "hypothesis", None)
-                or getattr(args, "hypothesis_json", None)
-                or has_inline_hypothesis
-            )
-            if not has_hypothesis:
-                raise LabError(
-                    "Agent trial requires --hypothesis with title, observation, and a prediction in expected_effect",
-                    code="E_CONTRACT_HYPOTHESIS",
-                    hint=hint_msg,
-                )
-            from .step import resolve_hypothesis_args, load_and_validate_hypothesis
-            hypothesis_input = resolve_hypothesis_args(args)
-            try:
-                hypothesis = load_and_validate_hypothesis(hypothesis_input)
-            except LabError as error:
-                if error.code == "E_CONTRACT_HYPOTHESIS" and str(error).startswith("Hypothesis requires non-empty"):
-                    raise LabError(
-                        "Agent trial requires --hypothesis with title, observation, and a prediction in expected_effect",
-                        code="E_CONTRACT_HYPOTHESIS",
-                        hint=hint_msg,
-                    ) from error
-                raise
-    except (LabError, RuntimeError) as error:
-        command = getattr(args, "command", "lab")
-        return fail(command, error)
-
-    try:
         output = run_command(args, labs_root)
     except (LabError, RuntimeError) as error:
         command = getattr(args, "command", "lab")

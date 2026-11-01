@@ -170,18 +170,7 @@ _install_draft_lab_shims()
 
 
 def save_manifest(config, manifest):
-    """Write a run manifest into the lab's SQLite store, opening the epoch it names if needed."""
-    from autoresearch_runtime.measurement import open_epoch
-    from autoresearch_runtime.sqlite_store import SQLiteStore
+    """Write a run manifest into the lab's SQLite store."""
     from autoresearch_runtime.state import _save_manifest
 
-    store = SQLiteStore()
-    state = store.load_state(config.lab_id)
-    epoch = int(manifest.get("epoch") or 1)
-    opened = False
-    while int(state.get("current_epoch") or 1) < epoch:
-        open_epoch(state, config)
-        opened = True
-    if opened:
-        store.save_state(config.lab_id, state)
     _save_manifest(config, manifest)

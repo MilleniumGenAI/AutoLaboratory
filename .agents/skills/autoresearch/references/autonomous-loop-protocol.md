@@ -25,7 +25,7 @@ python scripts/lab.py --agent guide --json
 The response envelope returns:
 - `stage`: Current lab stage (`BASELINE_NEEDED`, `ITERATING`, `CONVERGED`, etc.).
 - `recommended_action`: The recommended next action (`RUN_BASELINE`, `RUN_TRIAL`, etc.).
-- `cockpit.dead_ends`: List of recent rejected or crashed hypothesis attempts from the current epoch (up to 8 unique entries), preventing repeating failed ideas even after conversation context compaction.
+- `cockpit.dead_ends`: List of recent rejected or crashed hypothesis attempts for the current contract (up to 8 unique entries), preventing repeating failed ideas even after conversation context compaction.
 - `cockpit.signals`: Active research signals (e.g. `repeated_rejection`, `case_regression`, `near_miss`, `similar_hypothesis_rejected`).
 
 ---
@@ -48,25 +48,21 @@ Execute the trial using **zero-file inline arguments**. Do NOT call `write_file`
 ### Option A: Inline JSON (Recommended)
 
 ```bash
-python scripts/lab.py --agent --confirmed step --run \
-  --hypothesis-json '{"title":"Vectorize loop","observation":"Inner loop takes 80% CPU","expected_effect":"Reduce latency by 25%"}'
-```
-
-Or for asynchronous / background trials:
-
-```bash
 python scripts/lab.py --agent --confirmed trial start \
   --hypothesis-json '{"title":"Vectorize loop","observation":"Inner loop takes 80% CPU","expected_effect":"Reduce latency by 25%"}'
 python scripts/lab.py --agent trial wait --timeout 60
 ```
 
+`trial wait` returns `"pending": true` until the trial is decided; call it again until it does not.
+
 ### Option B: Inline Individual Flags
 
 ```bash
-python scripts/lab.py --agent --confirmed step --run \
+python scripts/lab.py --agent --confirmed trial start \
   --title "Vectorize loop" \
   --observation "Inner loop takes 80% CPU" \
   --expected-effect "Reduce latency by 25%"
+python scripts/lab.py --agent trial wait --timeout 60
 ```
 
 All three fields (`title`, `observation`, `expected_effect`) are required and validated before execution.
@@ -81,7 +77,7 @@ Read the output JSON envelope `data.cockpit`:
 - `cockpit.impact.status`: `"accepted"` or `"rejected"`.
 - `cockpit.impact.score`: Candidate score.
 - `cockpit.impact.delta`: Parent-relative delta.
-- `cockpit.impact.is_new_best`: `true` if new best in epoch.
+- `cockpit.impact.is_new_best`: `true` if new best for this contract.
 
 ### On Crash Diagnostics (`error_tail`)
 If the evaluator crashes (non-zero exit code or uncaught exception):
@@ -100,6 +96,6 @@ If a trial regresses on test cases that previously passed in the parent run:
 - **Do NOT execute tool calls to read `cases.jsonl`** — the failing case samples are directly visible in `signals`.
 
 ### On Long-Horizon Memory & Plateau (`dead_ends`)
-- `cockpit.dead_ends` tracks up to 8 unique failed candidate hashes/titles from the current epoch.
+- `cockpit.dead_ends` tracks up to 8 unique failed candidate hashes/titles for the current contract.
 - Signal history tracks up to 100 runs (expanded from 15), correctly identifying `same_candidate_rejected` and `similar_hypothesis_rejected` across long-running experiments.
 - If `repeated_rejection` occurs (3+ consecutive rejected trials), consult read-only external literature retrieval rather than continuing local permutations.

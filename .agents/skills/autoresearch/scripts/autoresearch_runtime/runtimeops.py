@@ -21,7 +21,7 @@ from .sqlite_store import ActiveOperationError, EntityNotFoundError, SQLiteStore
 
 
 _CURRENT_OPERATION: ContextVar[str | None] = ContextVar("autoresearch_operation_id", default=None)
-_OPERATION_KINDS = {"baseline", "trial", "resume", "recover", "epoch"}
+_OPERATION_KINDS = {"baseline", "trial", "resume", "recover"}
 _SAFE_PROVIDER = re.compile(r"^[A-Za-z0-9_.:/-]{1,128}$")
 
 
@@ -56,7 +56,7 @@ def safe_operation_context(config: LabConfig) -> dict[str, Any]:
     state = SQLiteStore().load_state(config.lab_id)
     epoch_id = state.get("current_epoch")
     if isinstance(epoch_id, bool) or not isinstance(epoch_id, int) or epoch_id < 1:
-        raise LabError("SQLite lab has no current contract epoch", code="E_PROVIDER_CONFIG")
+        raise LabError("SQLite lab state has no current contract record", code="E_PROVIDER_CONFIG")
     return {
         "schema": 1,
         "epoch_id": epoch_id,
@@ -80,6 +80,9 @@ def _bind_operation_context(config: LabConfig, kind: str, payload: dict[str, Any
     if kind == "trial":
         from .trial import validate_trial_request
         params["hypothesis"] = validate_trial_request(config, params.get("hypothesis"))
+    if kind == "baseline":
+        from .baseline import validate_baseline_request
+        validate_baseline_request(config)
     supplied = params.get("operation_context")
     if supplied is not None and supplied != context:
         raise LabError("Operation context does not match the current lab configuration", code="E_PROVIDER_CONFIG")

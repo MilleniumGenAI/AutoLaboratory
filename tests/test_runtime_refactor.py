@@ -32,7 +32,7 @@ from autoresearch_runtime.trial import _aggregate_metric, _first_repeat_rejectio
 
 class FuzzyArgsNormalizationTest(unittest.TestCase):
     def test_normalize_cli_args_hoists_confirmed_from_subcommand(self):
-        self.assertEqual(normalize_cli_args(["step", "--confirmed"]), ["--confirmed", "step"])
+        self.assertEqual(normalize_cli_args(["guide", "--confirmed"]), ["--confirmed", "guide"])
         self.assertEqual(
             normalize_cli_args(["trial", "--runs=3", "--confirmed"]),
             ["--confirmed", "trial", "--repeats=3"],
@@ -41,22 +41,22 @@ class FuzzyArgsNormalizationTest(unittest.TestCase):
     def test_normalize_cli_args_hoists_agent_and_maps_aliases(self):
         self.assertEqual(normalize_cli_args(["doctor", "--agent"]), ["--agent", "doctor"])
         self.assertEqual(
-            normalize_cli_args(["step", "--from-report", "rep.json"]),
-            ["step", "--source", "rep.json"],
+            normalize_cli_args(["guide", "--from-report", "rep.json"]),
+            ["guide", "--source", "rep.json"],
         )
         self.assertEqual(
-            normalize_cli_args(["step", "--input=data.json"]),
-            ["step", "--source=data.json"],
+            normalize_cli_args(["guide", "--input=data.json"]),
+            ["guide", "--source=data.json"],
         )
 
     def test_normalize_cli_args_hoists_config_and_value_flags(self):
         self.assertEqual(
-            normalize_cli_args(["step", "--config", "lab.json", "--confirmed"]),
-            ["--config", "lab.json", "--confirmed", "step"],
+            normalize_cli_args(["guide", "--config", "lab.json", "--confirmed"]),
+            ["--config", "lab.json", "--confirmed", "guide"],
         )
         self.assertEqual(
-            normalize_cli_args(["step", "--project=myproj", "--agent"]),
-            ["--project=myproj", "--agent", "step"],
+            normalize_cli_args(["guide", "--project=myproj", "--agent"]),
+            ["--project=myproj", "--agent", "guide"],
         )
 
 

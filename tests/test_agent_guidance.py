@@ -35,6 +35,7 @@ from tests.durable_workflow_helpers import (
     approved_offline_profile,
     run_baseline as run_durable_baseline,
     run_trial as run_durable_trial,
+    wait_for_trial_result,
 )
 
 
@@ -63,26 +64,6 @@ class AgentGuidanceTest(unittest.TestCase):
 
         init_lab(self.config)
         return self.config
-
-    def _run_sqlite_step(self, *step_args):
-        scripts = Path(__file__).resolve().parents[1] / ".agents" / "skills" / "autoresearch" / "scripts"
-        cmd = [
-            sys.executable, str(scripts / "lab.py"),
-            "--agent", "--confirmed",
-            "--config", str(self.config.path),
-            "step", "--run", *step_args,
-        ]
-        with approved_offline_profile(self.config):
-            env = os.environ.copy()
-            env["PYTHONPATH"] = str(scripts)
-            result = subprocess.run(
-                cmd, cwd=scripts, env=env, capture_output=True, text=True,
-                encoding="utf-8", **support.hidden_process_kwargs(),
-            )
-        self.assertEqual(result.returncode, 0, f"Step failed: {result.stderr}\n{result.stdout}")
-        envelope = json.loads(result.stdout)
-        self.assertTrue(envelope["ok"], envelope)
-        return envelope
 
     def test_state_card_before_baseline(self):
         init_lab(self.config)
@@ -307,10 +288,9 @@ class AgentGuidanceTest(unittest.TestCase):
         self.assertEqual(guide["provider_usage"]["confirmed_cost_usd"], 0.0)
         self.assertIsNone(guide["provider_usage"]["cost_usd"])
         self.assertEqual(guide["provider_retry"]["external_evaluator"], "unverified")
-        from autoresearch_runtime.step import run_step
-        step = run_step(config)
-        self.assertEqual(step["provider_usage"]["unknown_requests"], 1)
-        self.assertIsNone(step["provider_usage"]["cost_usd"])
+        cockpit_now = build_cockpit(config, load_state(config))
+        self.assertEqual(cockpit_now["provider_usage"]["unknown_requests"], 1)
+        self.assertIsNone(cockpit_now["provider_usage"]["cost_usd"])
 
     def test_guide_goal_uses_only_explicit_fresh_repeat_evidence(self):
         from dataclasses import replace
@@ -366,7 +346,7 @@ class AgentGuidanceTest(unittest.TestCase):
         self.assertNotIn("--from-report", normalized)
 
         # Flag with equal sign
-        args_eq = ["step", "--runs=5", "--config=my_lab.json", "--input=data.json"]
+        args_eq = ["guide", "--runs=5", "--config=my_lab.json", "--input=data.json"]
         norm_eq = normalize_cli_args(args_eq)
         self.assertEqual(norm_eq[0], "--config=my_lab.json")
         self.assertIn("--repeats=5", norm_eq)
@@ -427,69 +407,56 @@ class AgentGuidanceTest(unittest.TestCase):
             else:
                 os.environ["AUTORESEARCH_HOME"] = old_home
 
-    def test_resolve_hypothesis_args_and_validation(self):
-        from types import SimpleNamespace
-        from autoresearch_runtime.step import resolve_hypothesis_args, load_and_validate_hypothesis
-        from autoresearch_runtime.errors import LabError
-
-        # 1. Test resolve_hypothesis_args with hypothesis_json
-        args1 = SimpleNamespace(
-            hypothesis_json='{"title": "Loop unroll", "observation": "Loop overhead", "expected_effect": "Speedup"}',
-            hypothesis=None, title=None, observation=None, expected_effect=None,
-        )
-        resolved = resolve_hypothesis_args(args1)
-        self.assertEqual(resolved, {
-            "title": "Loop unroll",
-            "observation": "Loop overhead",
-            "expected_effect": "Speedup",
-        })
-        validated = load_and_validate_hypothesis(resolved)
-        self.assertEqual(validated["title"], "Loop unroll")
-        self.assertEqual(validated["rationale"], "Loop overhead -> Speedup")
-
-        # 2. Test resolve_hypothesis_args with title / observation / expected_effect
-        args2 = SimpleNamespace(
-            hypothesis_json=None, hypothesis=None,
-            title="Inline Title", observation="Inline Obs", expected_effect="Inline Effect",
-            rationale="Custom rationale", target_files=["code.py"],
-        )
-        resolved2 = resolve_hypothesis_args(args2)
-        self.assertEqual(resolved2["title"], "Inline Title")
-        self.assertEqual(resolved2["rationale"], "Custom rationale")
-        self.assertEqual(resolved2["target_files"], ["code.py"])
-        validated2 = load_and_validate_hypothesis(resolved2)
-        self.assertEqual(validated2["rationale"], "Custom rationale")
-
-        # 3. Test resolve_hypothesis_args with invalid JSON
-        args_bad_json = SimpleNamespace(
-            hypothesis_json="not-a-json", hypothesis=None, title=None, observation=None, expected_effect=None,
-        )
-        with self.assertRaises(LabError) as ctx:
-            resolve_hypothesis_args(args_bad_json)
-        self.assertEqual(ctx.exception.code, "E_BAD_HYPOTHESIS")
-
-        # 4. Test load_and_validate_hypothesis error on missing fields
-        with self.assertRaises(LabError) as ctx:
-            load_and_validate_hypothesis({"title": "Incomplete"})
-        self.assertEqual(ctx.exception.code, "E_CONTRACT_HYPOTHESIS")
-
-        # 5. Test load_and_validate_hypothesis directly from json string
-        valid_json_str = '{"title": "Str Title", "observation": "Str Obs", "expected_effect": "Str Effect"}'
-        validated_str = load_and_validate_hypothesis(valid_json_str)
-        self.assertEqual(validated_str["title"], "Str Title")
-
-        # 6. Incomplete inline flags in --agent trial are rejected before resolve_hypothesis_args
+    def test_trial_start_hypothesis_inputs_and_validation(self):
         import contextlib
         import io
         from autoresearch_runtime.cli import main as cli_main
-        buf = io.StringIO()
-        with contextlib.redirect_stderr(buf):
-            rc_incomplete = cli_main([
-                "--agent", "--config", str(self.config.path), "trial", "--title", "Only title provided",
-            ])
-        out_incomplete = json.loads(buf.getvalue())
-        self.assertNotEqual(rc_incomplete, 0)
-        self.assertEqual(out_incomplete["error"]["code"], "E_CONTRACT_HYPOTHESIS")
+
+        self._use_sqlite_toy()
+
+        def start(*args):
+            """Run `trial start` in-process with the worker stubbed, so only the accepted hypothesis is observed."""
+            out, err = io.StringIO(), io.StringIO()
+            with patch("autoresearch_runtime.commands.trial.enqueue_and_start_operation",
+                       return_value={"operation_id": "op-1", "status": "queued"}) as enqueue, \
+                 contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                code = cli_main(["--config", str(self.config.path), "trial", "start", *args])
+            return code, enqueue, err.getvalue()
+
+        # Accepted JSON keeps exactly the stated fields; the trial path does not invent a rationale.
+        code, enqueue, _ = start(
+            "--hypothesis-json",
+            '{"title": "Loop unroll", "observation": "Loop overhead", "expected_effect": "Speedup"}',
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(enqueue.call_args.args[2]["hypothesis"], {
+            "title": "Loop unroll", "observation": "Loop overhead", "expected_effect": "Speedup",
+        })
+
+        # Inline flags keep the optional fields.
+        code, enqueue, _ = start(
+            "--title", "Inline Title", "--observation", "Inline Obs", "--expected-effect", "Inline Effect",
+            "--rationale", "Custom rationale", "--target-files", "code.py",
+        )
+        self.assertEqual(code, 0)
+        self.assertEqual(enqueue.call_args.args[2]["hypothesis"], {
+            "title": "Inline Title", "observation": "Inline Obs", "expected_effect": "Inline Effect",
+            "rationale": "Custom rationale", "target_files": ["code.py"],
+        })
+
+        refusals = (
+            (["--hypothesis-json", "not-a-json"], "E_BAD_HYPOTHESIS"),
+            (["--hypothesis-json", "[1]"], "E_BAD_HYPOTHESIS"),
+            (["--hypothesis-json", '{"title": "Incomplete"}'], "E_CONTRACT_HYPOTHESIS"),
+            (["--title", "Only title provided"], "E_CONTRACT_HYPOTHESIS"),
+            ([], "E_HYPOTHESIS_REQUIRED"),
+        )
+        for args, expected_code in refusals:
+            with self.subTest(args=args):
+                code, enqueue, err = start(*args)
+                self.assertNotEqual(code, 0)
+                self.assertEqual(json.loads(err)["error"]["code"], expected_code)
+                enqueue.assert_not_called()
 
     def test_evaluator_error_tail_unit_and_cockpit_surfacing(self):
         from autoresearch_runtime.evaluator import _extract_error_tail
@@ -602,20 +569,24 @@ class AgentGuidanceTest(unittest.TestCase):
                 })
 
                 (candidate / "counter.txt").write_text("1", encoding="utf-8")
-                cmd = [
-                    sys.executable, str(scripts / "lab.py"),
-                    "--lab", str(lab_id),
-                    "--agent", "--confirmed", "trial",
-                    "--title", "Repeat 2 crash",
-                    "--observation", "O",
-                    "--expected-effect", "E",
-                ]
+                lab_cmd = [sys.executable, str(scripts / "lab.py"), "--lab", str(lab_id), "--agent"]
+                envelopes = []
+
+                def run_lab(*args):
+                    # Read the environment per call: the host profile is set inside the `with` below.
+                    env = {**os.environ, "AUTORESEARCH_HOME": str(home)}
+                    res = subprocess.run([*lab_cmd, *args], env=env, capture_output=True, text=True,
+                                         encoding="utf-8", **support.hidden_process_kwargs())
+                    self.assertEqual(res.returncode, 0, f"{' '.join(args)} failed: {res.stderr}\n{res.stdout}")
+                    envelopes.append(json.loads(res.stdout))
+                    return envelopes[-1]["data"]
+
                 config = load_config(str(lab_id))
                 with approved_offline_profile(config):
-                    res = subprocess.run(cmd, env={**os.environ, "AUTORESEARCH_HOME": str(home)}, capture_output=True, text=True, encoding="utf-8", **support.hidden_process_kwargs())
-                self.assertEqual(res.returncode, 0, f"Trial failed: {res.stderr}\n{res.stdout}")
-                out = json.loads(res.stdout)
-                data = out["data"]
+                    run_lab("--confirmed", "trial", "start", "--title", "Repeat 2 crash",
+                            "--observation", "O", "--expected-effect", "E")
+                    data = wait_for_trial_result(lambda: run_lab("trial", "wait", "--timeout", "30"))
+                out = envelopes[-1]
                 self.assertEqual(data["status"], "crash")
 
                 loaded_m = store.load_manifest(lab_id, data["id"])

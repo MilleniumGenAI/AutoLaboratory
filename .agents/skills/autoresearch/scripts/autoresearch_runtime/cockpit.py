@@ -492,14 +492,15 @@ def get_recommended_actions(
         action, reason = "REFINE_OR_RETRY", "Rejected run: use the recorded tradeoffs to form a revised hypothesis."
     else:
         action, reason = "RUN_TRIAL", "Write an explicit hypothesis and candidate change before running a trial."
-    hypothesis_path = str((config.path.parent / "hypothesis.json").resolve())
-    argv = _argv(config, "trial", "--hypothesis", hypothesis_path)
+    argv = _argv(
+        config, "trial", "start", "--hypothesis-json",
+        '{"title":"...","observation":"...","expected_effect":"..."}',
+    )
     return [{
         "priority": 1,
         "action": action,
         "argv": argv,
         "command": _command(argv),
-        "hypothesis_file": hypothesis_path,
         "reason": reason,
     }]
 
@@ -730,7 +731,7 @@ def render_ascii_card(cockpit: dict[str, Any]) -> str:
     base_mean_str = f"{base_mean:.4g}{unit}" if base_mean is not None else "—"
     lines = [
         "╔══════════════════════════ [ AGENT COCKPIT ] ══════════════════════════╗",
-        f"║ Фаза: {stage:<16} Эпоха: {state.get('epoch', 1):<4} Метрика: {primary} ({state.get('direction', 'max')})",
+        f"║ Фаза: {stage:<16} Метрика: {primary} ({state.get('direction', 'max')})",
         f"║ Baseline worst: {base_str:<12} mean: {base_mean_str} | Best worst: {best_str} mean: {best_mean_str}",
         f"║ Goal: {cockpit.get('goal_status', 'unknown')}",
     ]

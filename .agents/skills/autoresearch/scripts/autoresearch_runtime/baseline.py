@@ -138,24 +138,21 @@ def _check_candidate_matches_snapshot(config: LabConfig, state: dict[str, Any]) 
         raise LabError(f"Candidate changed before the first measurement: {', '.join(changed[:5])}")
 
 
-def run_baseline(config: LabConfig, *, supersede: bool = False, reason: str | None = None) -> dict[str, Any]:
+def validate_baseline_request(config: LabConfig) -> None:
+    """Refuse a duplicate before it becomes a durable operation that would block the lab."""
+    if load_state(config)["baseline_id"] is not None:
+        raise LabError("Baseline already exists")
+
+
+def run_baseline(config: LabConfig) -> dict[str, Any]:
     from .runtimeops import require_durable_operation_context
     require_durable_operation_context(config, "baseline")
-    from .measurement import ensure_epoch, migrate_state, open_epoch
+    from .measurement import ensure_epoch, migrate_state
 
     state = load_state(config)
     migrate_state(state)
-    if state["baseline_id"] is not None and not supersede:
+    if state["baseline_id"] is not None:
         raise LabError("Baseline already exists")
-    if supersede:
-        if state["baseline_id"] is None:
-            raise LabError("No baseline to supersede")
-        if not isinstance(reason, str) or not reason.strip():
-            raise LabError("supersede requires --reason")
-        open_epoch(state, config, reason=reason.strip())
-        state["baseline_id"] = None
-        state["best_id"] = None
-        state["baseline_verified"] = False
     epoch_id = ensure_epoch(state, config)
     from .sqlite_store import SQLiteStore
     store = SQLiteStore()
@@ -169,7 +166,7 @@ def run_baseline(config: LabConfig, *, supersede: bool = False, reason: str | No
     _finalize_setup(config, state)
     _check_frozen(config, state)
     previous = [item for item in _runs(config) if item["id"] == "baseline" or item["id"].startswith("baseline-")]
-    if not previous and not supersede:
+    if not previous:
         _check_candidate_matches_snapshot(config, state)
     if any(item["status"] == "running" for item in previous):
         from .trial import recover_lab
