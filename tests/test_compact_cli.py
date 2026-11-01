@@ -7,6 +7,7 @@ import contextlib
 import io
 import json
 import unittest
+from unittest.mock import patch
 
 from tests import test_agent_guidance as guidance
 from autoresearch_runtime.cli import main
@@ -56,14 +57,22 @@ class CompactCliTest(unittest.TestCase):
     def test_agent_trial_requires_explicit_prediction(self):
         init_lab(self.config)
         run_baseline(self.config)
-        hypothesis = self.root / "hypothesis.json"
-        hypothesis.write_text(json.dumps({"title": "Unexplained change"}))
-        for tail in (("trial",), ("trial", "--hypothesis", str(hypothesis))):
+        # A bare `trial` and the removed `--hypothesis <file>` form are argument errors, not trial starts.
+        for tail in (("trial",), ("trial", "start", "--hypothesis", str(self.root / "hypothesis.json"))):
             err = io.StringIO()
             with contextlib.redirect_stderr(err):
                 code = main(["--config", str(self.config.path), "--agent", *tail])
             self.assertEqual(code, 2)
-            self.assertEqual(json.loads(err.getvalue())["error"]["code"], "E_CONTRACT_HYPOTHESIS")
+            self.assertIn("error:", err.getvalue())
+        # An unexplained inline hypothesis is refused before any worker is queued.
+        err = io.StringIO()
+        with patch("autoresearch_runtime.commands.trial.enqueue_and_start_operation") as enqueue, \
+             contextlib.redirect_stderr(err):
+            code = main(["--config", str(self.config.path), "--agent", "trial", "start",
+                         "--hypothesis-json", json.dumps({"title": "Unexplained change"})])
+        self.assertEqual(code, 2)
+        self.assertEqual(json.loads(err.getvalue())["error"]["code"], "E_CONTRACT_HYPOTHESIS")
+        enqueue.assert_not_called()
 
 
 if __name__ == "__main__":

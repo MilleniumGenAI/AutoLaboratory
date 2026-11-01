@@ -14,6 +14,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
+try:
+    from durable_workflow_helpers import wait_for_trial_result
+except ImportError:
+    from tests.durable_workflow_helpers import wait_for_trial_result
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS_DIR = REPO_ROOT / ".agents" / "skills" / "autoresearch" / "scripts"
 PYTHON = sys.executable
@@ -156,35 +161,42 @@ class TestV3Resilience(unittest.TestCase):
         self.env["AUTORESEARCH_HARNESS_PROFILE"] = str(profile_path)
         state_dir = Path(out["data"]["candidate"]).parent
 
-        rc, out, err = self.run_cmd(self.cli + ["--config", config_path, "step"])
-        self.assertEqual(rc, 0, f"Initial step failed: {out}\nSTDERR: {err}")
-        self.assertIn(out["data"]["stage"], ("SETUP_PENDING", "BASELINE_NEEDED"))
-        self.assertEqual(out["data"]["recommended_action"]["action"], "RUN_BASELINE")
+        rc, out, err = self.run_cmd(self.cli + ["--config", config_path, "guide"])
+        self.assertEqual(rc, 0, f"Initial guide failed: {out}\nSTDERR: {err}")
+        self.assertIn(out["data"]["state"]["stage"], ("SETUP_PENDING", "BASELINE_NEEDED"))
+        self.assertEqual(out["data"]["next_steps"][0]["action"], "RUN_BASELINE")
 
-        rc, out, err = self.run_cmd(self.cli + [
-            "--confirmed", "--config", config_path, "step", "--run",
-        ])
-        self.assertEqual(rc, 0, f"Step baseline failed: {out}\nSTDERR: {err}")
-        self.assertEqual(out["data"]["action_taken"], "baseline")
+        rc, out, err = self.run_cmd(self.cli + ["--confirmed", "--config", config_path, "baseline"])
+        self.assertEqual(rc, 0, f"Baseline failed: {out}\nSTDERR: {err}")
+        self.assertEqual(out["data"]["status"], "accepted")
 
         (state_dir / "candidate" / "main.py").write_text("SCORE = 10\n", encoding="utf-8")
-        rc, out, err = self.run_cmd(self.cli + ["--config", config_path, "step"])
-        self.assertEqual(rc, 0, f"Trial recommendation failed: {out}\nSTDERR: {err}")
-        self.assertEqual(out["data"]["stage"], "ITERATING")
-        self.assertEqual(out["data"]["recommended_action"]["action"], "RUN_TRIAL")
+        rc, out, err = self.run_cmd(self.cli + ["--config", config_path, "guide"])
+        self.assertEqual(rc, 0, f"Trial guide failed: {out}\nSTDERR: {err}")
+        self.assertEqual(out["data"]["state"]["stage"], "ITERATING")
+        self.assertEqual(out["data"]["next_steps"][0]["action"], "RUN_TRIAL")
 
-        hypothesis_path = self.root / "hypothesis.json"
-        hypothesis_path.write_text(json.dumps({
+        hypothesis = {
             "title": "Raise the candidate score from 5 to 10",
             "observation": "The edited main.py sets SCORE to 10 while the baseline scored 5.",
             "expected_effect": "The evaluator should report a score of 10.",
-        }), encoding="utf-8")
+        }
         rc, out, err = self.run_cmd(self.cli + [
-            "--confirmed", "--config", config_path, "trial", "--hypothesis", str(hypothesis_path),
+            "--confirmed", "--config", config_path, "trial", "start", "--hypothesis-json", json.dumps(hypothesis),
         ])
-        self.assertEqual(rc, 0, f"Trial failed: {out}\nSTDERR: {err}")
-        self.assertEqual(out["data"]["status"], "accepted")
-        self.assertEqual(out["data"]["title"], "Raise the candidate score from 5 to 10")
+        self.assertEqual(rc, 0, f"Trial start failed: {out}\nSTDERR: {err}")
+        self.assertTrue(out["data"]["started"])
+
+        def trial_wait():
+            wait_rc, wait_out, wait_err = self.run_cmd(self.cli + [
+                "--config", config_path, "trial", "wait", "--timeout", "60",
+            ])
+            self.assertEqual(wait_rc, 0, f"Trial wait failed: {wait_out}\nSTDERR: {wait_err}")
+            return wait_out["data"]
+
+        decided = wait_for_trial_result(trial_wait)
+        self.assertEqual(decided["status"], "accepted")
+        self.assertEqual(decided["title"], "Raise the candidate score from 5 to 10")
 
         rc, out, err = self.run_cmd(self.cli + ["--config", config_path, "promote", "--in-place"])
         self.assertEqual(rc, 0, f"Promote failed: {out}\nSTDERR: {err}")

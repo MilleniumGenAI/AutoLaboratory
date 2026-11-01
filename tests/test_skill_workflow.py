@@ -16,7 +16,7 @@ from pathlib import Path
 
 from autoresearch_runtime.lab import load_config, load_state, status_lab
 from tests.durable_workflow_helpers import (
-    approved_offline_profile, run_baseline, run_trial,
+    approved_offline_profile, run_baseline, run_trial, wait_for_trial_result,
 )
 
 
@@ -494,18 +494,27 @@ class SkillWorkflowTest(unittest.TestCase):
         config = load_config(Path(prepared["config"]))
         run_baseline(config)
         (config.state_dir / "candidate" / "value.txt").write_text("2", encoding="utf-8")
-        hypothesis = self.root / "hypothesis.json"
-        hypothesis.write_text(json.dumps(self.delegated_hypothesis(title="Улучшение")), encoding="utf-8")
-        with approved_offline_profile(config):
+        hypothesis_json = json.dumps(self.delegated_hypothesis(title="Улучшение"))
+        lab_script = str(Path(__file__).resolve().parents[1] / ".agents" / "skills" / "autoresearch" / "scripts" / "lab.py")
+
+        def lab_cli(*args):
             environment = dict(os.environ, PYTHONIOENCODING="cp1252")
-            result = subprocess.run(
-                [sys.executable, str(Path(__file__).resolve().parents[1] / ".agents" / "skills" / "autoresearch" / "scripts" / "lab.py"),
-                 "--config", str(config.path), "--confirmed", "trial", "--hypothesis", str(hypothesis)],
+            return subprocess.run(
+                [sys.executable, lab_script, "--config", str(config.path), *args],
                 cwd=self.root, env=environment, capture_output=True, text=True, encoding="cp1252",
                 **support.hidden_process_kwargs(),
             )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout)["data"]["title"], "Улучшение")
+
+        def wait_once():
+            waited = lab_cli("trial", "wait", "--timeout", "60")
+            self.assertEqual(waited.returncode, 0, waited.stderr)
+            return json.loads(waited.stdout)["data"]
+
+        with approved_offline_profile(config):
+            started = lab_cli("--confirmed", "trial", "start", "--hypothesis-json", hypothesis_json)
+            self.assertEqual(started.returncode, 0, started.stderr)
+            decided = wait_for_trial_result(wait_once)
+        self.assertEqual(decided["title"], "Улучшение")
 
     def test_prepare_cli_creates_the_lab_and_starts_no_dashboard(self):
         from autoresearch_runtime.bootstrap import main as prepare_main

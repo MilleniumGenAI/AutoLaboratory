@@ -12,7 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from autoresearch_runtime.commands import baseline, epoch, recover, resume, step
+from autoresearch_runtime.commands import baseline, epoch, recover, resume, trial
 
 
 class DurableCliDispatchTest(unittest.TestCase):
@@ -49,32 +49,21 @@ class DurableCliDispatchTest(unittest.TestCase):
             epoch.run(SimpleNamespace(epoch_command="open", spec=spec_path, reason=""), None)
             run.assert_called_once_with(self.config, "epoch", {"action": "open", "spec": spec})
 
-    def test_step_run_queues_recommended_baseline_and_trial(self):
-        baseline_guide = {"status": "recommended", "recommended_action": {"action": "RUN_BASELINE"}}
-        with patch("autoresearch_runtime.commands.step.resolve_config", return_value=self.config), \
-             patch("autoresearch_runtime.commands.step.run_step", return_value=dict(baseline_guide)), \
-             patch("autoresearch_runtime.commands.step.run_durable_operation", return_value={"status": "accepted"}) as run, \
-             patch("autoresearch_runtime.commands.step.load_state", return_value={}), \
-             patch("autoresearch_runtime.commands.step.get_state_card", return_value={"stage": "ITERATING"}):
-            result = step.run(SimpleNamespace(run=True, hypothesis=None), None)
-            run.assert_called_once_with(self.config, "baseline", {})
-        self.assertEqual(result["action_taken"], "baseline")
-
-        hypothesis = {"title": "A", "observation": "B", "expected_effect": "C", "evidence": ["D"]}
-        hypothesis_path = Path(self.temp.name) / "hypothesis.json"
-        hypothesis_path.write_text(json.dumps(hypothesis), encoding="utf-8")
-        normalized_hypothesis = {**hypothesis, "rationale": "B -> C"}
-        trial_guide = {"status": "recommended", "recommended_action": {"action": "RUN_TRIAL"}}
-        with patch("autoresearch_runtime.commands.step.resolve_config", return_value=self.config), \
-             patch("autoresearch_runtime.commands.step.run_step", return_value=dict(trial_guide)), \
-             patch("autoresearch_runtime.commands.step._git"), \
-             patch("autoresearch_runtime.commands.step._git_bytes", return_value=b"diff"), \
-             patch("autoresearch_runtime.commands.step.run_durable_operation", return_value={"status": "rejected"}) as run, \
-             patch("autoresearch_runtime.commands.step.load_state", return_value={}), \
-             patch("autoresearch_runtime.commands.step.get_state_card", return_value={"stage": "ITERATING"}):
-            result = step.run(SimpleNamespace(run=True, hypothesis=hypothesis_path), None)
-            run.assert_called_once_with(self.config, "trial", {"hypothesis": normalized_hypothesis})
-        self.assertEqual(result["action_taken"], "trial")
+    def test_trial_start_enqueues_the_normalized_hypothesis_once(self):
+        raw = {"title": "A", "observation": "B", "expected_effect": "C", "evidence": ["D"], "unknown": "dropped"}
+        args = SimpleNamespace(trial_command="start", hypothesis_json=json.dumps(raw), confirmed=True)
+        with patch("autoresearch_runtime.commands.trial.resolve_config", return_value=self.config), \
+             patch("autoresearch_runtime.commands.trial.enqueue_and_start_operation",
+                   return_value={"operation_id": "op-1", "status": "queued"}) as enqueue:
+            result = trial.run(args, None)
+        enqueue.assert_called_once()
+        _lab_id, command, params, _key = enqueue.call_args.args
+        self.assertEqual(command, "trial")
+        self.assertEqual(params, {
+            "hypothesis": {"title": "A", "observation": "B", "expected_effect": "C", "evidence": ["D"]},
+            "confirmed": True,
+        })
+        self.assertEqual(result, {"started": True, "operation_id": "op-1", "status": "queued"})
 
 
 if __name__ == "__main__":

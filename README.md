@@ -61,7 +61,8 @@ python .agents/skills/autoresearch/scripts/lab.py preflight --spec <spec.json>
 python .agents/skills/autoresearch/scripts/prepare.py --project <project> --brief-text - --spec <spec.json> --confirmed
 python .agents/skills/autoresearch/scripts/lab.py --config <lab.json> guide --json
 python .agents/skills/autoresearch/scripts/lab.py --config <lab.json> --confirmed baseline
-python .agents/skills/autoresearch/scripts/lab.py --config <lab.json> --confirmed trial start --hypothesis <hypothesis.json>
+python .agents/skills/autoresearch/scripts/lab.py --config <lab.json> --confirmed trial start --hypothesis-json '{"title":"...","observation":"...","expected_effect":"..."}'
+python .agents/skills/autoresearch/scripts/lab.py --config <lab.json> trial wait --timeout 30
 python .agents/skills/autoresearch/scripts/lab.py --config <lab.json> status
 ```
 

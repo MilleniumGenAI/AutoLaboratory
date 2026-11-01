@@ -13,7 +13,12 @@ except ImportError:
     from tests import support  # noqa: F401  package import
 
 from autoresearch_runtime.cli import build_parser
+from autoresearch_runtime.cockpit import get_recommended_actions
+from autoresearch_runtime.fuzzy_args import normalize_cli_args
 from autoresearch_runtime.runtimeops import _OPERATION_KINDS
+from autoresearch_runtime.state import load_state
+from tests import test_agent_guidance as guidance
+from tests.durable_workflow_helpers import run_baseline as run_durable_baseline
 
 REPO = Path(__file__).resolve().parents[1]
 SKILL = REPO / ".agents" / "skills" / "autoresearch"
@@ -76,11 +81,9 @@ def parse_documented(parser, where, argv):
 
 
 def runs_evaluator(args):
-    """Mirror the runtime: baseline/trial/resume/recover/epoch, plus step --run and trial start."""
-    if args.command == "step":
-        return bool(getattr(args, "run", False))
+    """Mirror the runtime: durable operations, where a trial runs only through `trial start`."""
     if args.command == "trial":
-        return getattr(args, "trial_command", None) in (None, "start")
+        return args.trial_command == "start"
     return args.command in _OPERATION_KINDS
 
 
@@ -98,6 +101,30 @@ class DocCommandsTest(unittest.TestCase):
                     self.assertIs(args.confirmed, True,
                                   f"{where}: evaluator-running command needs --confirmed before the subcommand")
         self.assertGreater(evaluator_runs, 0, "no evaluator-running commands were recognised")
+
+
+class GuideNextActionsParseTest(unittest.TestCase):
+    """The argv that guide offers as its next action must parse with the runtime parser."""
+
+    setUp = guidance.AgentGuidanceTest.setUp
+
+    def test_every_offered_next_action_parses_with_the_runtime_parser(self):
+        guidance.AgentGuidanceTest._use_sqlite_toy(self)
+        offered = get_recommended_actions(self.config, load_state(self.config), last_run=None)
+        run_durable_baseline(self.config)
+        state = load_state(self.config)
+        offered += get_recommended_actions(self.config, state, last_run={"id": "baseline", "status": "accepted"})
+        offered += get_recommended_actions(self.config, state, last_run={"id": "trial-0001", "status": "running"})
+        offered += get_recommended_actions(self.config, state,
+                                           last_run={"id": "trial-0001", "status": "recovery_required"})
+        self.assertEqual({action["action"] for action in offered},
+                         {"RUN_BASELINE", "RUN_TRIAL", "WAIT", "RECOVER"})
+        parser = build_parser()
+        for action in offered:
+            with self.subTest(action=action["action"]):
+                argv = action["argv"]
+                self.assertTrue(Path(argv[0]).is_absolute())
+                parse_documented(parser, f"guide {action['action']}", normalize_cli_args(argv[2:]))
 
 
 if __name__ == "__main__":

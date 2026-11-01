@@ -8,7 +8,7 @@ import tempfile
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 from unittest.mock import patch
 
 from autoresearch_runtime.errors import LabError
@@ -82,3 +82,15 @@ def run_baseline(config: Any, *, supersede: bool = False, reason: str = "") -> d
 
 def run_trial(config: Any, hypothesis: dict[str, Any]) -> dict[str, Any]:
     return run_durable_operation(config, "trial", {"hypothesis": hypothesis})
+
+
+def wait_for_trial_result(wait_once: Callable[[], dict[str, Any]], *, rounds: int = 60) -> dict[str, Any]:
+    """Call `trial wait` until the started trial's manifest is recorded rather than still pending.
+
+    `wait_once` makes one CLI call and returns its parsed `data`; each call blocks for its own timeout.
+    """
+    for _ in range(rounds):
+        data = wait_once()
+        if not data.get("pending"):
+            return data
+    raise AssertionError("trial did not finish within the wait budget")

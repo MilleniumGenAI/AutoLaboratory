@@ -159,18 +159,25 @@ def main() -> int:
         # Step 5: Trial with hypothesis and candidate edit
         candidate_model = state_dir / "candidate" / "model.py"
         candidate_model.write_text("WEIGHT = 0.8\n", encoding="utf-8")
-        hyp_file = live_dir / "hypothesis.json"
-        hyp_file.write_text(json.dumps({
+        hypothesis_json = json.dumps({
             "title": "Set weight to 0.8",
             "observation": "Baseline accuracy is 0.7 with weight 0.5",
             "expected_effect": "Directly targets ground truth to achieve +0.3 accuracy"
-        }), encoding="utf-8")
-        
-        rc, out, err, dt = run_cmd(cli + ["--config", config_path, "trial", "--agent", "--hypothesis", str(hyp_file)], env_extra=env_extra)
-        telemetry.append({"step": "trial_agent", "rc": rc, "stdout": out, "stderr": err, "dt_sec": round(dt, 3)})
-        print(f"[{'OK' if rc == 0 else 'FAIL'}] trial_agent in {dt:.2f}s (rc={rc})")
-        assert rc == 0, f"trial failed: {err}\n{out}"
-        trial_resp = json.loads(out)
+        })
+
+        rc, out, err, dt = run_cmd(cli + ["--config", config_path, "trial", "start", "--hypothesis-json", hypothesis_json], env_extra=env_extra)
+        telemetry.append({"step": "trial_start", "rc": rc, "stdout": out, "stderr": err, "dt_sec": round(dt, 3)})
+        print(f"[{'OK' if rc == 0 else 'FAIL'}] trial_start in {dt:.2f}s (rc={rc})")
+        assert rc == 0, f"trial start failed: {err}\n{out}"
+        for _ in range(60):
+            rc, out, err, dt = run_cmd(cli + ["--config", config_path, "trial", "wait", "--timeout", "30", "--agent"], env_extra=env_extra)
+            telemetry.append({"step": "trial_wait", "rc": rc, "stdout": out, "stderr": err, "dt_sec": round(dt, 3)})
+            assert rc == 0, f"trial wait failed: {err}\n{out}"
+            trial_resp = json.loads(out)
+            if not trial_resp["data"].get("pending"):
+                break
+        else:
+            raise AssertionError("trial did not finish within the wait budget")
         print("TRIAL FULL DATA:", json.dumps(trial_resp.get("data", {}), indent=2))
         trial_data = trial_resp["data"]
         print(f"Trial outcome: status={trial_data.get('status')}, best score: {trial_resp['cockpit']['state']['best']['score']}")

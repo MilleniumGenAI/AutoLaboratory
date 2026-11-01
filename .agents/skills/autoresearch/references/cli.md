@@ -49,25 +49,22 @@ python SKILL_DIR/scripts/lab.py --config <lab.json> guide --json [--run <run_id>
 
 ## Trials and resume
 
-`step` without execution recommends an action. Execution requires an explicit hypothesis:
+`guide` names the next action, and its `argv` is a ready command. A trial takes an explicit hypothesis passed inline; there is no hypothesis file argument. `trial start` returns at once, and `trial wait` returns the decided manifest:
 
 ```text
-python SKILL_DIR/scripts/lab.py --config <lab.json> step
-python SKILL_DIR/scripts/lab.py --config <lab.json> --confirmed step --run --hypothesis <hypothesis.json>
-python SKILL_DIR/scripts/lab.py --config <lab.json> --confirmed step --run --hypothesis-json '{"title":"...","observation":"...","expected_effect":"..."}'
-python SKILL_DIR/scripts/lab.py --config <lab.json> --confirmed step --run --title "..." --observation "..." --expected-effect "..."
+python SKILL_DIR/scripts/lab.py --config <lab.json> --confirmed trial start --hypothesis-json '{"title":"...","observation":"...","expected_effect":"..."}'
+python SKILL_DIR/scripts/lab.py --config <lab.json> --confirmed trial start --title "..." --observation "..." --expected-effect "..."
+python SKILL_DIR/scripts/lab.py --config <lab.json> trial wait --timeout 30
 python SKILL_DIR/scripts/lab.py --config <lab.json> --confirmed resume <run_id>
 ```
 
-For AI agents, inline hypothesis arguments (`--hypothesis-json` or `--title`/`--observation`/`--expected-effect`) are recommended over `--hypothesis <file>` to avoid disk write tool calls.
+`trial` takes one of the subcommands `start`, `wait` or `status`.
 
 Native resume accepts only an interrupted, crashed, or timed-out run and validates the same frozen contract, candidate snapshot, pins, epoch, and parent before continuing that run ID. Valid saved results can be finalized without evaluator capability flags. If missing repeats require evaluator execution, verified `case_resume` and `offline_verified` capabilities with the pinned fixture are required; pending evaluations may still make provider calls. Before those evaluator calls, corrupt/torn journals or unresolved HTTP attempts block the resume path. Reconcile the logs before retrying; never make a second run look like continuation.
 
-Background trials remain available:
+Check a running trial with:
 
 ```text
-python SKILL_DIR/scripts/lab.py --config <lab.json> --confirmed trial start --hypothesis <hypothesis.json>
-python SKILL_DIR/scripts/lab.py --config <lab.json> --confirmed trial start --hypothesis-json '{"title":"...","observation":"...","expected_effect":"..."}'
 python SKILL_DIR/scripts/lab.py --config <lab.json> trial wait --timeout 30
 python SKILL_DIR/scripts/lab.py --config <lab.json> trial status
 ```

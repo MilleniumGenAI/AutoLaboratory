@@ -26,6 +26,7 @@ PREPARE = SCRIPTS / "prepare.py"
 LAB = SCRIPTS / "lab.py"
 BASELINE_METRICS = {"mean_error": 2.0, "coverage": 3.0}  # rule.txt = 1 against cases.json
 CANDIDATE_RULE = "2\n"  # the one-line edit under test
+WAIT_ROUNDS = 20  # each `trial wait` blocks for up to 30 seconds
 TRIAL_FLAGS = [
     "--title", "Double the rule factor",
     "--observation", "Factor 1 undershoots every case by its input",
@@ -126,6 +127,15 @@ class Lab:
         return self.run(LAB, ["--config", config, *args])
 
 
+def _wait_for_trial(lab: Lab, config: str) -> dict[str, Any]:
+    """Call `trial wait` until the started trial's manifest is recorded rather than still pending."""
+    for _ in range(WAIT_ROUNDS):
+        data = lab.lab(config, "trial", "wait", "--timeout", "30")
+        if not data.get("pending"):
+            return data
+    raise DemoError("trial did not finish within the wait budget")
+
+
 def run_flow(base: Path, host: Path) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
     project = base / "toy"
     home = base / "lab-home"
@@ -151,7 +161,8 @@ def run_flow(base: Path, host: Path) -> tuple[dict[str, Any], dict[str, Any], li
 
     baseline = lab.lab(config, "--confirmed", "baseline")
     (Path(prepared["candidate"]) / "rule.txt").write_text(CANDIDATE_RULE, encoding="utf-8")
-    trial = lab.lab(config, "--confirmed", "trial", *TRIAL_FLAGS)
+    lab.lab(config, "--confirmed", "trial", "start", *TRIAL_FLAGS)
+    trial = _wait_for_trial(lab, config)
     lab.lab(config, "guide", "--json")
     return baseline, trial, lab.shown
 
